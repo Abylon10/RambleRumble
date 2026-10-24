@@ -11,16 +11,19 @@ public sealed class KillDrop
     public (string Species, string Rarity, string Size)? Pet { get; init; }
     public bool PityHit { get; init; }
     public bool SkillBox { get; init; }
-    /// <summary>Filled in by PlayerData when the skill box is opened ("" = duplicate).</summary>
+    /// <summary>Filled in by PlayerData when the skill box is opened.</summary>
     public string SkillLearned { get; set; } = "";
+    /// <summary>False when the box rolled a skill already owned (it gave mastery XP instead).</summary>
+    public bool SkillIsNew { get; set; }
+    /// <summary>Character XP for the kill.</summary>
+    public int Xp { get; set; }
     /// <summary>Filled in by PlayerData once the pet is added.</summary>
     public Pet? AddedPet { get; set; }
 }
 
 /// <summary>
 /// Rolls monster-kill rewards: gold, a pet (with size) and a skill box.
-/// Pure logic with an injected RNG so it can be simulated and, later, run on
-/// the backend as the authoritative roll.
+/// Pure logic with an injected RNG so it can be simulated in tests.
 /// </summary>
 public static class DropRoller
 {

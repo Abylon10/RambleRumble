@@ -7,24 +7,34 @@ using RambleRumble.UI;
 namespace RambleRumble;
 
 /// <summary>
-/// Puts the game world together: the Lobby and Wilderness maps, their walls,
-/// walk-in stations, portals and campfires, per-zone monster spawning, the
-/// player and the HUD.
+/// Puts the game world together: the Village and Wilderness maps, their walls,
+/// walk-in stations, portals and campfires, Garrick and the story swarm,
+/// region locks, per-zone monster spawning, the player, battle pet and HUD.
 /// </summary>
 public partial class World : Node2D
 {
     private const float Wall = 40f;
     private const float PortalRadius = 46f;
     private const float CampfireHeal = 15f;
+    private const float TalkRadius = 90f;
+    private const float SwarmTriggerRange = 380f;
+    private const int SwarmSize = 8;
+    private static readonly Color VillageColor = new(0.9f, 0.75f, 0.5f);
 
     public Player Player { get; private set; } = null!;
     public Hud Hud { get; private set; } = null!;
     public Node2D Monsters { get; private set; } = null!;
     public bool InWilderness { get; private set; }
-    /// <summary>The Wilderness zone the player is in, or null in the Lobby.</summary>
+    /// <summary>The Wilderness zone the player is in, or null in the Village.</summary>
     public ZoneInfo? CurrentZone { get; private set; }
 
     private bool _inTraining;
+    private bool _nearGiver;
+    private Vector2 _lastOpenPosition = Zones.ArrivalPoint;
+    private float _lockToastCooldown;
+    private readonly List<Monster> _swarm = new();
+    private Node2D _swarmBeacon = null!;
+    private readonly Dictionary<string, ZoneLockOverlay> _lockOverlays = new();
     private int _campfiresTouching;
     private int _shownTrainingLevel;
     private readonly Dictionary<string, float> _spawnTimers = new();
@@ -47,12 +57,27 @@ public partial class World : Node2D
         BuildCircleZone(LobbyMap.Portal, PortalRadius, entered => { if (entered) Defer(() => Teleport(Zones.ArrivalPoint, toWilderness: true)); });
         BuildCircleZone(Zones.Gate, PortalRadius, entered => { if (entered) Defer(() => Teleport(LobbyMap.ReturnPoint, toWilderness: false)); });
         BuildCircleZone(LobbyMap.UpgradeStation, LobbyMap.StationRadius, entered => { if (entered) Hud.Open(Hud.UpgradesPanel); });
-        BuildStationMessage(LobbyMap.RaidBoard, "Raid Board: raids on other players' bases arrive in Phase 4.");
-        BuildStationMessage(LobbyMap.CosmeticArea, "Cosmetics & Titles: coming in Phase 6.");
-        BuildStationMessage(LobbyMap.Leaderboard, "Leaderboard: arrives with online play in Phase 5.");
-        BuildStationMessage(LobbyMap.EventArea, "Event Area: swarm events arrive in Phase 3.");
+        BuildStationMessage(LobbyMap.Guild, "Rambler Guild: closed for now. It reopens under Kael in Chapter 5.");
+        BuildStationMessage(LobbyMap.CosmeticArea, "Cosmetics & Titles: coming later.");
+        BuildStationMessage(LobbyMap.Leaderboard, "Merchant: a rescued merchant sets up shop in Chapter 3.");
+        BuildCircleZone(LobbyMap.EventArea, LobbyMap.StationRadius, entered => { if (entered) ShowQuestBoard(); });
+        BuildCircleZone(LobbyMap.QuestGiver, TalkRadius, entered =>
+        {
+            _nearGiver = entered;
+            Hud.SetTalkAvailable(entered && Data.HasStarter);
+        });
         foreach (var fire in Zones.Campfires)
             BuildCircleZone(fire, Zones.CampfireRadius, entered => _campfiresTouching += entered ? 1 : -1);
+
+        foreach (var zone in Zones.All.Where(z => z.RequiredChapter >= 0 || z.RequiredLevel > 1))
+        {
+            var overlay = new ZoneLockOverlay { Zone = zone };
+            _lockOverlays[zone.Id] = overlay;
+            AddChild(overlay);
+        }
+        _swarmBeacon = new SwarmBeacon { Position = Zones.StorySwarm };
+        AddChild(_swarmBeacon);
+        AddChild(new QuestGiverNpc { Position = LobbyMap.QuestGiver });
 
         Monsters = new Node2D();
         AddChild(Monsters);
@@ -61,11 +86,19 @@ public partial class World : Node2D
         Player.Defeated += OnPlayerDefeated;
         AddChild(Player);
 
+        AddChild(new BattlePetNode { Player = Player, Position = Player.Position });
+
         Hud = new Hud { Player = Player };
         Hud.TrainPressed += OnTrainPressed;
+        Hud.TalkPressed += TalkToQuestGiver;
         AddChild(Hud);
+        Hud.SetArea("Hearthwood Village", VillageColor);
         _shownTrainingLevel = Data.TrainingLevel;
+        Data.Changed += RefreshLocks;
+        RefreshLocks();
     }
+
+    public override void _ExitTree() => Data.Changed -= RefreshLocks;
 
     public override void _Process(double delta)
     {
@@ -80,8 +113,14 @@ public partial class World : Node2D
         if (Player.Resting)
             Player.Heal(CampfireHeal * dt);
 
+        _lockToastCooldown -= dt;
         if (InWilderness)
+        {
             TrackZone();
+            TickStorySwarm();
+        }
+        if (_nearGiver && Input.IsActionJustPressed("talk"))
+            TalkToQuestGiver();
         foreach (var zone in Zones.All)
             TickSpawner(zone, dt);
     }
@@ -101,6 +140,9 @@ public partial class World : Node2D
             ["skill_2"] = new[] { Key.L },
             ["skill_3"] = new[] { Key.U },
             ["skill_4"] = new[] { Key.I },
+            ["skill_5"] = new[] { Key.O },
+            ["skill_6"] = new[] { Key.P },
+            ["talk"] = new[] { Key.E },
         };
         foreach (var (action, actionKeys) in keys)
         {
@@ -157,16 +199,38 @@ public partial class World : Node2D
         Player.InSafeZone = !toWilderness;
         InWilderness = toWilderness;
         CurrentZone = null;
-        Hud.SetArea("Lobby", new Color(0.9f, 0.75f, 0.5f));
+        Hud.SetArea("Hearthwood Village", VillageColor);
         if (toWilderness)
+        {
+            _lastOpenPosition = destination;
             TrackZone();
+        }
+        else
+        {
+            Player.RefillEnergy();
+            ClearSwarm();
+        }
         GetViewport().GetCamera2D()?.ResetSmoothing();
     }
 
     private void TrackZone()
     {
         var zone = Zones.At(Player.GlobalPosition);
-        if (zone == null || zone == CurrentZone)
+        if (zone == null)
+            return;
+        if (!zone.IsOpenFor(Data))
+        {
+            // Sealed region: push the player back to where they last stood in an open one.
+            Player.GlobalPosition = _lastOpenPosition;
+            if (_lockToastCooldown <= 0f)
+            {
+                _lockToastCooldown = 2f;
+                Hud.Toast($"A strange energy blocks the way. {zone.LockReason(Data)}", new Color(0.8f, 0.6f, 1f));
+            }
+            return;
+        }
+        _lastOpenPosition = Player.GlobalPosition;
+        if (zone == CurrentZone)
             return;
         CurrentZone = zone;
         Hud.SetArea(zone.Name, zone.TierColor);
@@ -199,10 +263,15 @@ public partial class World : Node2D
             SpawnMonster(PickSpecies(zone), RandomPointIn(zone), zone.Id);
     }
 
-    public Monster SpawnMonster(string speciesId, Vector2 at, string zoneId = "")
+    /// <param name="eliteTitle">If set, spawns a tougher labelled leader (e.g. a swarm leader).</param>
+    /// <param name="corrupted">Shows the red streaks of corrupted Rumble (story monsters).</param>
+    public Monster SpawnMonster(string speciesId, Vector2 at, string zoneId = "", string? eliteTitle = null, bool corrupted = false)
     {
         var monster = new Monster();
         monster.Setup(speciesId, at, Player, zoneId);
+        monster.Corrupted = corrupted;
+        if (eliteTitle != null)
+            monster.MakeElite(eliteTitle);
         monster.Died += OnMonsterDied;
         Monsters.AddChild(monster);
         return monster;
@@ -244,25 +313,104 @@ public partial class World : Node2D
         if (drop.AddedPet is { } pet)
         {
             string note = drop.PityHit ? "  (pity!)" : "";
-            Hud.Toast($"New pet: {pet.Size} {pet.Species} ({pet.Rarity}){note}", GameConfig.RarityColor(pet.Rarity));
+            Hud.Toast($"A Monster Echo! {pet.Size} {pet.Species} ({pet.Rarity}){note}", GameConfig.RarityColor(pet.Rarity));
         }
         if (drop.SkillBox)
         {
-            if (drop.SkillLearned != "")
-            {
-                var skill = GameConfig.Skill(drop.SkillLearned);
-                Hud.Toast($"Skill box: learned {skill.Name}!", skill.Color);
-            }
-            else
-            {
-                Hud.Toast($"Skill box: duplicate, +{GameConfig.SkillBoxDuplicateGold} gold", new Color(1f, 0.85f, 0.3f));
-            }
+            var skill = SkillCatalog.Get(drop.SkillLearned);
+            Hud.Toast(drop.SkillIsNew ? $"Skill box: learned {skill.Name}!" : $"Skill box: {skill.Name} mastery +{GameConfig.MasteryFromDuplicateBox}",
+                skill.Color);
         }
+    }
+
+    // --- Story ----------------------------------------------------------------
+
+    /// <summary>Garrick: offers the current quest, reminds, or takes the hand-in.</summary>
+    public void TalkToQuestGiver()
+    {
+        if (!Data.HasStarter)
+            return;
+        var quest = Data.CurrentQuest;
+        if (quest == null)
+        {
+            Hud.Dialogue.Say(Quests.GiverName, "That's all I can ask of you for now. Rest, train, and look after your Echoes. " +
+                "The forest won't wait forever; Chapter 3 is coming.");
+        }
+        else if (!Data.QuestAccepted)
+        {
+            Hud.Dialogue.Say($"{Quests.GiverName}  •  {quest.Title}", quest.Intro, "Accept", () =>
+            {
+                Data.AcceptQuest();
+                Hud.Dialogue.Visible = false;
+                Hud.Toast($"New quest: {quest.Title}", new Color(1f, 0.9f, 0.4f));
+            });
+        }
+        else if (Data.QuestReady)
+        {
+            Hud.Dialogue.Say($"{Quests.GiverName}  •  {quest.Title}", quest.Outro, $"Complete (+{quest.Gold}g, +{quest.Xp} XP)", () =>
+            {
+                Data.TurnInQuest();
+                TalkToQuestGiver(); // straight on to the next quest's offer
+            });
+        }
+        else
+        {
+            Hud.Dialogue.Say(Quests.GiverName, $"How goes it? Remember: {quest.Objective.ToLower()}.");
+        }
+    }
+
+    private void ShowQuestBoard()
+    {
+        var quest = Data.CurrentQuest;
+        string text = quest == null ? "Quest Board: no new quests right now."
+            : !Data.QuestAccepted ? $"Quest Board: {Quests.GiverName} has a task for you: {quest.Title}."
+            : $"Quest Board: {quest.Title}: {quest.Objective}.";
+        Hud.Toast(text, new Color(0.9f, 0.85f, 0.7f));
+    }
+
+    private bool StorySwarmActive =>
+        Data.QuestAccepted && !Data.QuestReady && Data.CurrentQuest?.Goal == QuestGoal.ClearSwarm;
+
+    /// <summary>Spawns the Chapter 1 swarm when the player gets close, and reports when it's cleared.</summary>
+    private void TickStorySwarm()
+    {
+        _swarmBeacon.Visible = StorySwarmActive;
+        if (!StorySwarmActive)
+            return;
+        if (_swarm.Count == 0)
+        {
+            if (Player.GlobalPosition.DistanceTo(Zones.StorySwarm) > SwarmTriggerRange)
+                return;
+            Hud.Toast("Red-streaked slimes! Stop them before they reach Hearthwood!", new Color(1f, 0.45f, 0.4f));
+            for (int i = 0; i < SwarmSize; i++)
+                _swarm.Add(SpawnMonster("Slime", Zones.StorySwarm + Vector2.FromAngle(i * Mathf.Tau / SwarmSize) * 130f, "swarm", corrupted: true));
+            _swarm.Add(SpawnMonster("Slime", Zones.StorySwarm, "swarm", "SWARM LEADER", corrupted: true));
+            return;
+        }
+        if (_swarm.All(m => !IsInstanceValid(m) || m.IsQueuedForDeletion()))
+        {
+            _swarm.Clear();
+            Data.QuestEvent(QuestGoal.ClearSwarm);
+        }
+    }
+
+    /// <summary>Removes a half-fought swarm (e.g. after defeat) so it respawns fresh next time.</summary>
+    private void ClearSwarm()
+    {
+        foreach (var monster in _swarm.Where(m => IsInstanceValid(m) && !m.IsQueuedForDeletion()))
+            monster.QueueFree();
+        _swarm.Clear();
+    }
+
+    private void RefreshLocks()
+    {
+        foreach (var (id, overlay) in _lockOverlays)
+            overlay.Visible = !Zones.ById(id).IsOpenFor(Data);
     }
 
     private void OnPlayerDefeated()
     {
-        Hud.Toast("Defeated! Back to the Lobby.", new Color(1f, 0.4f, 0.4f));
+        Hud.Toast("Defeated! You wake up back in Hearthwood.", new Color(1f, 0.4f, 0.4f));
         Defer(() => Teleport(LobbyMap.ReturnPoint, toWilderness: false));
         Player.HealFull();
     }

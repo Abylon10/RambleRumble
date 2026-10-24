@@ -2,7 +2,7 @@ using Godot;
 
 namespace RambleRumble;
 
-/// <summary>Placeholder drawing helpers shared by the Lobby and Wilderness maps.</summary>
+/// <summary>Placeholder drawing helpers shared by the Village and Wilderness maps.</summary>
 public static class MapArt
 {
     /// <summary>Centered text with a dark outline so it reads on any ground.</summary>

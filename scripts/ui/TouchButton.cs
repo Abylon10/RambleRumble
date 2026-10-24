@@ -70,17 +70,13 @@ public partial class TouchButton : Control
             var iconRect = new Rect2(center - new Vector2(side, side) / 2, new Vector2(side, side));
             DrawTextureRect(Icon, iconRect, false);
         }
-        if (CooldownRatio > 0.02f)
+        if (CooldownRatio > 0.01f)
         {
-            const int steps = 32;
-            var points = new Vector2[steps + 2];
-            points[0] = center;
-            for (int i = 0; i <= steps; i++)
-            {
-                float angle = -Mathf.Pi / 2 + Mathf.Tau * CooldownRatio * i / steps;
-                points[i + 1] = center + Vector2.FromAngle(angle) * (radius - 4);
-            }
-            DrawColoredPolygon(points, new Color(0, 0, 0, 0.55f));
+            // A thick arc reaching the centre draws the pie. (A pie polygon nearly closes on
+            // itself right after a cast and then fails to triangulate.)
+            float inner = (radius - 4) / 2f;
+            int steps = Mathf.Max(2, (int)(48 * CooldownRatio));
+            DrawArc(center, inner, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * CooldownRatio, steps, new Color(0, 0, 0, 0.55f), inner * 2f);
         }
         if (Icon != null)
             return;

@@ -13,6 +13,8 @@ public partial class Projectile : Node2D
     public Vector2 Direction { get; set; } = Vector2.Right;
     public float Damage { get; set; } = 10f;
     public Color Tint { get; set; } = Colors.White;
+    /// <summary>Radians per second the flight path bends (0 = straight).</summary>
+    public float TurnRate { get; set; }
 
     private float _travelled;
     private readonly HashSet<Monster> _hit = new();
@@ -20,6 +22,7 @@ public partial class Projectile : Node2D
     public override void _PhysicsProcess(double delta)
     {
         float step = Speed * (float)delta;
+        Direction = Direction.Rotated(TurnRate * (float)delta);
         Position += Direction * step;
         _travelled += step;
         foreach (var node in GetTree().GetNodesInGroup("monsters"))

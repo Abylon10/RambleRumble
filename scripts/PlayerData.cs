@@ -25,10 +25,10 @@ public sealed class MergePlan
 }
 
 /// <summary>
-/// The player's progress, saved locally. Registered as the autoload
-/// "PlayerData"; reach it from anywhere with <c>PlayerData.Instance</c>.
-/// When online raids arrive (Phase 5) the backend becomes the source of truth,
-/// so every change goes through here.
+/// The player's progress, saved on the device (the game is fully offline).
+/// Registered as the autoload "PlayerData"; reach it from anywhere with
+/// <c>PlayerData.Instance</c>. Every change goes through here so the UI and
+/// quests stay in sync.
 /// </summary>
 public partial class PlayerData : Node
 {
@@ -39,11 +39,25 @@ public partial class PlayerData : Node
     /// <summary>Raised for a message the HUD should toast.</summary>
     public event Action<string, Color>? Notify;
 
-    private const int SaveVersion = 2;
+    private const int SaveVersion = 3;
     private const float AutosaveInterval = 15f;
 
     /// <summary>"male" or "female"; picks the character art.</summary>
     public string Gender { get; private set; } = "male";
+    /// <summary>Character level (1–200), from kill and quest XP. Separate from training.</summary>
+    public int Level { get; private set; } = 1;
+    public int Xp { get; private set; }
+    /// <summary>Primary class lineage, set by the starter skill ("" before choosing).</summary>
+    public string Lineage { get; private set; } = "";
+    public int ClassTier { get; private set; } = 1;
+    /// <summary>Skill id -> total mastery XP.</summary>
+    public Dictionary<string, int> Mastery { get; } = new();
+    /// <summary>Index into <see cref="Quests.All"/> of the current story quest.</summary>
+    public int QuestIndex { get; private set; }
+    public bool QuestAccepted { get; private set; }
+    public int QuestProgress { get; private set; }
+    /// <summary>Highest story chapter fully completed (-1 = none, 0 = Prologue).</summary>
+    public int CompletedChapter { get; private set; } = -1;
     public int Gold { get; set; }
     public int TrainingLevel { get; private set; } = 1;
     public int TrainingXp { get; private set; }
@@ -110,16 +124,23 @@ public partial class PlayerData : Node
 
     public bool HasStarter => OwnedSkills.Count > 0;
 
+    /// <summary>Learns a starter skill; its lineage becomes the primary lineage at class Tier I.</summary>
     public void ChooseStarter(string skillId)
     {
-        if (HasStarter || !GameConfig.StarterSkills.Contains(skillId))
+        if (HasStarter || !SkillCatalog.StarterSkills.Contains(skillId))
             return;
         OwnedSkills.Add(skillId);
         EquippedSkills.Add(skillId);
+        Lineage = SkillCatalog.Get(skillId).Lineage;
+        ClassTier = 1;
         Commit();
     }
 
-    public int SkillSlots => GameConfig.BaseSkillSlots + UpgradeLevel("skill_slots");
+    /// <summary>Equipped skill slots come from character level (2nd at 25, ... 6th at 200).</summary>
+    public int SkillSlots => GameConfig.SkillSlotsAt(Level);
+
+    public string ClassName => Lineage == "" ? "No class" : Lineages.ClassName(Lineage, ClassTier);
+    public string Rank => GameConfig.RankAt(Level);
 
     public void ToggleEquip(string skillId)
     {
@@ -135,20 +156,90 @@ public partial class PlayerData : Node
         Commit();
     }
 
-    /// <summary>Returns the learned skill id, or "" if the box was a duplicate converted to gold.</summary>
-    private string OpenSkillBox()
+    /// <summary>
+    /// Skills a box can roll: built skills of your lineage up to your level, plus
+    /// the other starters. A skill you already have becomes mastery XP instead.
+    /// </summary>
+    public List<SkillInfo> SkillBoxPool() => SkillCatalog.All
+        .Where(s => s.Implemented && (s.IsStarter || (s.Lineage == Lineage && s.UnlockLevel <= Level)))
+        .ToList();
+
+    /// <summary>Opens a skill box; returns the rolled skill id and whether it was new.</summary>
+    public (string SkillId, bool IsNew) OpenSkillBox()
     {
-        var unowned = GameConfig.Skills.Select(s => s.Id).Where(id => !OwnedSkills.Contains(id)).ToList();
-        if (unowned.Count == 0)
+        var pool = SkillBoxPool();
+        // New skills are what players want from a box, so roll among unowned ones first.
+        var unowned = pool.Where(s => !OwnedSkills.Contains(s.Id)).ToList();
+        var from = unowned.Count > 0 ? unowned : pool;
+        var skill = from[Rng.RandiRange(0, from.Count - 1)];
+        if (OwnedSkills.Contains(skill.Id))
         {
-            Gold += GameConfig.SkillBoxDuplicateGold;
-            return "";
+            AddMastery(skill.Id, GameConfig.MasteryFromDuplicateBox);
+            return (skill.Id, false);
         }
-        string skillId = unowned[Rng.RandiRange(0, unowned.Count - 1)];
-        OwnedSkills.Add(skillId);
+        OwnedSkills.Add(skill.Id);
         if (EquippedSkills.Count < SkillSlots)
-            EquippedSkills.Add(skillId);
-        return skillId;
+            EquippedSkills.Add(skill.Id);
+        return (skill.Id, true);
+    }
+
+    // --- Mastery --------------------------------------------------------------
+
+    public int MasteryRank(string skillId)
+    {
+        int xp = Mastery.GetValueOrDefault(skillId);
+        int rank = 1;
+        while (rank < GameConfig.MaxMasteryRank && xp >= GameConfig.MasteryXpToNext(rank))
+        {
+            xp -= GameConfig.MasteryXpToNext(rank);
+            rank++;
+        }
+        return rank;
+    }
+
+    /// <summary>Adds mastery XP; returns true on a rank-up.</summary>
+    public bool AddMastery(string skillId, int amount)
+    {
+        int before = MasteryRank(skillId);
+        Mastery[skillId] = Mastery.GetValueOrDefault(skillId) + amount;
+        int after = MasteryRank(skillId);
+        if (after > before)
+            Notify?.Invoke($"{SkillCatalog.Get(skillId).Name} mastery rank {after}!", SkillCatalog.Get(skillId).Color);
+        return after > before;
+    }
+
+    /// <summary>+3% damage per mastery rank above 1.</summary>
+    public float SkillDamageMult(string skillId) => 1f + 0.03f * (MasteryRank(skillId) - 1);
+
+    /// <summary>-5% cooldown at mastery ranks 5, 10, 15 and 20.</summary>
+    public float SkillCooldownMult(string skillId) => 1f - 0.05f * (MasteryRank(skillId) / 5);
+
+    public float MaxEnergy => GameConfig.BaseMaxEnergy + GameConfig.EnergyPerWellLevel * UpgradeLevel("energy_well");
+
+    // --- Character level ------------------------------------------------------
+
+    public void AddXp(int amount)
+    {
+        if (Level >= GameConfig.MaxLevel)
+            return;
+        Xp += amount;
+        int slotsBefore = SkillSlots;
+        bool leveled = false;
+        while (Level < GameConfig.MaxLevel && Xp >= GameConfig.XpToNextLevel(Level))
+        {
+            Xp -= GameConfig.XpToNextLevel(Level);
+            Level++;
+            leveled = true;
+        }
+        if (Level >= GameConfig.MaxLevel)
+            Xp = 0;
+        if (leveled)
+        {
+            Notify?.Invoke($"Level {Level}!", new Color(1f, 0.95f, 0.5f));
+            if (SkillSlots > slotsBefore)
+                Notify?.Invoke($"New skill slot unlocked ({SkillSlots} total)!", new Color(1f, 0.95f, 0.5f));
+        }
+        Commit(save: leveled);
     }
 
     // --- Training and stats ---------------------------------------------------
@@ -183,8 +274,8 @@ public partial class PlayerData : Node
         Commit(save: leveled);
     }
 
-    public float AttackPower => 10f * (1f + 0.12f * (TrainingLevel - 1));
-    public float MaxHp => 100f + 15f * (TrainingLevel - 1);
+    public float AttackPower => 10f * (1f + 0.12f * (TrainingLevel - 1) + 0.03f * (Level - 1));
+    public float MaxHp => 100f + 15f * (TrainingLevel - 1) + 8f * (Level - 1);
 
     public float PetPower(Pet pet)
     {
@@ -197,8 +288,8 @@ public partial class PlayerData : Node
     /// <summary>Offense CP from the best loadout the player owns, so unequipping can't lower it.</summary>
     public int CombatPower()
     {
-        float cp = 100f + 25f * (TrainingLevel - 1);
-        cp += OwnedSkills.Select(id => GameConfig.Skill(id).Cp).OrderByDescending(c => c).Take(SkillSlots).Sum();
+        float cp = 100f + 25f * (TrainingLevel - 1) + 15f * (Level - 1) + 50f * (ClassTier - 1);
+        cp += OwnedSkills.Select(id => SkillCatalog.Get(id).Cp * SkillDamageMult(id)).OrderByDescending(c => c).Take(SkillSlots).Sum();
         cp += (Pets.Count > 0 ? Pets.Max(PetPower) : 0f) * 2f;
         return (int)Math.Round(cp);
     }
@@ -219,6 +310,7 @@ public partial class PlayerData : Node
         Gold -= cost;
         Upgrades[upgradeId] = UpgradeLevel(upgradeId) + 1;
         Notify?.Invoke($"{GameConfig.Upgrade(upgradeId).Name} upgraded to level {Upgrades[upgradeId]}!", new Color(1f, 0.85f, 0.3f));
+        QuestEvent(QuestGoal.BuyUpgrade);
         Commit();
         return true;
     }
@@ -232,6 +324,31 @@ public partial class PlayerData : Node
     public Pet? FindPet(int petId) => Pets.FirstOrDefault(p => p.Id == petId);
 
     public List<Pet> FencedPets() => Pets.Where(p => p.Role == PetRole.Fence).ToList();
+
+    /// <summary>The pet fighting beside the player, if any. It earns no fence gold.</summary>
+    public Pet? BattlePet => Pets.FirstOrDefault(p => p.Role == PetRole.Battle);
+
+    /// <summary>Makes a pet the battle pet (replacing any other), or rests it.</summary>
+    public void SetBattlePet(int petId, bool battle)
+    {
+        var pet = FindPet(petId);
+        if (pet == null)
+            return;
+        if (battle)
+        {
+            if (BattlePet is { } current)
+                current.Role = PetRole.None;
+            pet.Role = PetRole.Battle;
+        }
+        else if (pet.Role == PetRole.Battle)
+        {
+            pet.Role = PetRole.None;
+        }
+        PetsChanged();
+    }
+
+    /// <summary>Damage per battle-pet attack.</summary>
+    public float BattlePetDamage(Pet pet) => 4f + PetPower(pet) * 0.5f;
 
     public float PetIncomePerMin(Pet pet) =>
         GameConfig.Rarity(pet.Rarity).Income * LevelMult(pet) * GameConfig.Star(pet.Stars).Mult * GameConfig.Size(pet.Size).Mult;
@@ -433,9 +550,100 @@ public partial class PlayerData : Node
         if (drop.Pet is { } petDrop)
             drop.AddedPet = AddPet(petDrop.Species, petDrop.Size);
         if (drop.SkillBox)
-            drop.SkillLearned = OpenSkillBox();
+            (drop.SkillLearned, drop.SkillIsNew) = OpenSkillBox();
+        drop.Xp = GameConfig.KillXp(GameConfig.SpeciesOf(speciesId));
+        QuestEvent(QuestGoal.Kill, speciesId);
+        AddXp(drop.Xp);
         Commit();
         return drop;
+    }
+
+    // --- Story quests ---------------------------------------------------------
+
+    public QuestDef? CurrentQuest => Quests.At(QuestIndex);
+    public bool QuestReady => QuestAccepted && CurrentQuest is { } q && QuestProgress >= q.Count;
+
+    public void AcceptQuest()
+    {
+        if (CurrentQuest == null || QuestAccepted)
+            return;
+        QuestAccepted = true;
+        QuestProgress = 0;
+        Commit();
+    }
+
+    /// <summary>Hands in the current quest if it's done; returns the finished quest.</summary>
+    public QuestDef? TurnInQuest()
+    {
+        if (!QuestReady || CurrentQuest is not { } quest)
+            return null;
+        Gold += quest.Gold;
+        if (quest.RewardPet != "")
+        {
+            AddPet(quest.RewardPet, "Normal");
+            Notify?.Invoke($"A Monster Echo joins you: {quest.RewardPet}!", GameConfig.RarityColor(GameConfig.SpeciesOf(quest.RewardPet).Rarity));
+        }
+        if (quest.SkillBox)
+        {
+            var (skillId, isNew) = OpenSkillBox();
+            var skill = SkillCatalog.Get(skillId);
+            Notify?.Invoke(isNew ? $"Skill box: learned {skill.Name}!" : $"Skill box: {skill.Name} mastery +{GameConfig.MasteryFromDuplicateBox}",
+                skill.Color);
+        }
+        if (Quests.EndsChapter(QuestIndex))
+        {
+            CompletedChapter = quest.Chapter;
+            Notify?.Invoke($"{Quests.ChapterNames[quest.Chapter]} complete!", new Color(1f, 0.9f, 0.4f));
+        }
+        QuestIndex++;
+        QuestAccepted = false;
+        QuestProgress = 0;
+        AddXp(quest.Xp);
+        Commit();
+        return quest;
+    }
+
+    /// <summary>Dev/test shortcut: marks the written story complete and raises the level, opening every region.</summary>
+    public void DebugUnlockWorld(int level = 60)
+    {
+        QuestIndex = Quests.All.Length;
+        QuestAccepted = false;
+        QuestProgress = 0;
+        CompletedChapter = Quests.StoryChapters;
+        while (Level < level)
+            AddXp(GameConfig.XpToNextLevel(Level) - Xp);
+        Commit();
+    }
+
+    /// <summary>Counts an event toward the active quest (kills, swarms, upgrades).</summary>
+    public void QuestEvent(QuestGoal goal, string target = "")
+    {
+        if (!QuestAccepted || CurrentQuest is not { } quest || quest.Goal != goal || QuestReady)
+            return;
+        if (quest.Target != "" && quest.Target != target)
+            return;
+        QuestProgress++;
+        if (QuestReady)
+            Notify?.Invoke($"Quest complete: {quest.Title}! Return to {Quests.GiverName}.", new Color(1f, 0.9f, 0.4f));
+        Commit();
+    }
+
+    /// <summary>Quests about current state (training level, fence, battle pet) track it directly.</summary>
+    private void RefreshStateQuest()
+    {
+        if (!QuestAccepted || CurrentQuest is not { } quest)
+            return;
+        bool wasReady = QuestReady;
+        int value = quest.Goal switch
+        {
+            QuestGoal.TrainingLevel => TrainingLevel,
+            QuestGoal.FencePet => FencedPets().Count,
+            QuestGoal.BattlePet => BattlePet != null ? 1 : 0,
+            _ => QuestProgress,
+        };
+        QuestProgress = Math.Min(value, quest.Count);
+        if (QuestReady && !wasReady)
+            Notify?.Invoke($"Quest complete: {quest.Title}! Return to {Quests.GiverName}.", new Color(1f, 0.9f, 0.4f));
     }
 
     // --- Persistence ----------------------------------------------------------
@@ -448,6 +656,7 @@ public partial class PlayerData : Node
 
     private void Commit(bool save = true)
     {
+        RefreshStateQuest();
         Changed?.Invoke();
         if (save)
             SaveGame();
@@ -459,6 +668,15 @@ public partial class PlayerData : Node
         public int Version { get; set; }
         public double SavedAt { get; set; }
         public string Gender { get; set; } = "male";
+        public int Level { get; set; } = 1;
+        public int Xp { get; set; }
+        public string Lineage { get; set; } = "";
+        public int ClassTier { get; set; } = 1;
+        public Dictionary<string, int> Mastery { get; set; } = new();
+        public int QuestIndex { get; set; }
+        public bool QuestAccepted { get; set; }
+        public int QuestProgress { get; set; }
+        public int CompletedChapter { get; set; } = -1;
         public int Gold { get; set; }
         public int TrainingLevel { get; set; } = 1;
         public int TrainingXp { get; set; }
@@ -487,6 +705,15 @@ public partial class PlayerData : Node
             Version = SaveVersion,
             SavedAt = Time.GetUnixTimeFromSystem(),
             Gender = Gender,
+            Level = Level,
+            Xp = Xp,
+            Lineage = Lineage,
+            ClassTier = ClassTier,
+            Mastery = Mastery,
+            QuestIndex = QuestIndex,
+            QuestAccepted = QuestAccepted,
+            QuestProgress = QuestProgress,
+            CompletedChapter = CompletedChapter,
             Gold = Gold,
             TrainingLevel = TrainingLevel,
             TrainingXp = TrainingXp,
@@ -537,12 +764,41 @@ public partial class PlayerData : Node
         ReplaceAll(Pity, data.Pity);
         ReplaceAll(Upgrades, data.Upgrades);
         ReplaceAll(StarShards, data.StarShards);
+        ReplaceAll(Mastery, data.Mastery);
+        Level = Math.Clamp(data.Level, 1, GameConfig.MaxLevel);
+        Xp = data.Xp;
+        ClassTier = Math.Clamp(data.ClassTier, 1, 5);
+        QuestIndex = data.QuestIndex;
+        QuestAccepted = data.QuestAccepted;
+        QuestProgress = data.QuestProgress;
+        CompletedChapter = data.CompletedChapter;
+        Lineage = data.Lineage;
+        MigrateOldSave();
         PetsVersion++;
 
         // Version 1 saves have no timestamp, so they earn nothing offline.
         // Clock changes can make the gap negative; ApplyOffline clamps it.
         if (data.SavedAt > 0)
             OfflineGold = ApplyOffline(Time.GetUnixTimeFromSystem() - data.SavedAt);
+    }
+
+    /// <summary>Brings saves from before levels and lineages up to date.</summary>
+    private void MigrateOldSave()
+    {
+        OwnedSkills.RemoveAll(id => !SkillCatalog.Exists(id));
+        EquippedSkills.RemoveAll(id => !OwnedSkills.Contains(id));
+        if (Lineage == "" && OwnedSkills.FirstOrDefault(id => SkillCatalog.Get(id).IsStarter) is { } starter)
+            Lineage = SkillCatalog.Get(starter).Lineage;
+        // Skill slots now come from level: refund the old gold upgrade and keep only the slots you have.
+        if (Upgrades.Remove("skill_slots", out int bought))
+        {
+            int refund = 0;
+            for (int i = 0; i < bought; i++)
+                refund += (int)Math.Round(2000 * Math.Pow(5, i));
+            Gold += refund;
+        }
+        if (EquippedSkills.Count > SkillSlots)
+            EquippedSkills.RemoveRange(SkillSlots, EquippedSkills.Count - SkillSlots);
     }
 
     private static void ReplaceAll<T>(ICollection<T> target, IEnumerable<T> source)
@@ -556,6 +812,15 @@ public partial class PlayerData : Node
     public void ResetProgress()
     {
         Gender = "male";
+        Level = 1;
+        Xp = 0;
+        Lineage = "";
+        ClassTier = 1;
+        Mastery.Clear();
+        QuestIndex = 0;
+        QuestAccepted = false;
+        QuestProgress = 0;
+        CompletedChapter = -1;
         Gold = 0;
         TrainingLevel = 1;
         TrainingXp = 0;

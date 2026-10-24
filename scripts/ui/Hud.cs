@@ -1,27 +1,36 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace RambleRumble.UI;
 
 /// <summary>
-/// In-game HUD built in code: stats, joystick, action buttons, toasts, and the
-/// starter-skill, pets, skills and upgrades panels.
+/// In-game HUD built in code: stats (level, class, XP, HP, energy), quest
+/// tracker, joystick and action buttons, toasts, dialogue, and the
+/// character-creation, pets, skills and upgrades panels.
 /// </summary>
 public partial class Hud : CanvasLayer
 {
     public event Action? TrainPressed;
+    public event Action? TalkPressed;
 
     public Player Player { get; set; } = null!;
-    public string AreaName { get; private set; } = "Lobby";
+    public string AreaName { get; private set; } = "Hearthwood Village";
 
+    private Label _levelLabel = null!;
+    private ProgressBar _xpBar = null!;
     private Label _cpLabel = null!;
     private Label _goldLabel = null!;
     private Label _trainLabel = null!;
     private ProgressBar _trainBar = null!;
     private ProgressBar _hpBar = null!;
+    private ProgressBar _energyBar = null!;
     private Label _areaLabel = null!;
     private TextureRect _portrait = null!;
+    private Label _questTitle = null!;
+    private Label _questObjective = null!;
+    private PanelContainer _questPanel = null!;
     private Label _toastLabel = null!;
     private readonly Queue<(string Text, Color Color)> _toasts = new();
     private float _toastTime;
@@ -29,6 +38,8 @@ public partial class Hud : CanvasLayer
     private TouchButton _attackButton = null!;
     private readonly List<TouchButton> _skillButtons = new();
     private Button _trainButton = null!;
+    private Button _talkButton = null!;
+    private Label _skillsHeader = null!;
     private VBoxContainer _skillsList = null!;
 
     // Exposed so tests and screenshots can open panels directly.
@@ -36,6 +47,7 @@ public partial class Hud : CanvasLayer
     public PetsPanel PetsPanel { get; private set; } = null!;
     public UpgradesPanel UpgradesPanel { get; private set; } = null!;
     public PanelContainer SkillsPanel { get; private set; } = null!;
+    public DialoguePanel Dialogue { get; private set; } = null!;
 
     private static PlayerData Data => PlayerData.Instance;
 
@@ -47,8 +59,11 @@ public partial class Hud : CanvasLayer
 
         BuildStats(root);
         BuildTopButtons(root);
+        BuildQuestTracker(root);
         BuildControls(root);
         BuildToast(root);
+        Dialogue = new DialoguePanel();
+        root.AddChild(Dialogue);
         PetsPanel = new PetsPanel();
         root.AddChild(PetsPanel);
         UpgradesPanel = new UpgradesPanel();
@@ -86,12 +101,16 @@ public partial class Hud : CanvasLayer
 
         _hpBar.MaxValue = Data.MaxHp;
         _hpBar.Value = Player.Hp;
+        _energyBar.MaxValue = Data.MaxEnergy;
+        _energyBar.Value = Player.Energy;
         _areaLabel.Text = AreaName;
         _attackButton.CooldownRatio = Player.CooldownRatio("basic", GameConfig.BasicAttackCooldown);
         for (int i = 0; i < _skillButtons.Count && i < Data.EquippedSkills.Count; i++)
         {
-            var skill = GameConfig.Skill(Data.EquippedSkills[i]);
-            _skillButtons[i].CooldownRatio = Player.CooldownRatio(skill.Id, skill.Cooldown);
+            var skill = SkillCatalog.Get(Data.EquippedSkills[i]);
+            _skillButtons[i].CooldownRatio = Player.CooldownRatio(skill.Id, skill.Cooldown * Data.SkillCooldownMult(skill.Id));
+            // Dim the ring when there isn't enough energy to cast.
+            _skillButtons[i].Tint = Player.Energy >= skill.Cost ? skill.Color : skill.Color.Darkened(0.6f);
         }
 
         if (_toastTime > 0f)
@@ -104,7 +123,14 @@ public partial class Hud : CanvasLayer
 
     public void SetTrainingAvailable(bool available) => _trainButton.Visible = available;
 
-    /// <summary>Shows where the player is (Lobby or a Wilderness zone) in the stats panel.</summary>
+    public void SetTalkAvailable(bool available)
+    {
+        _talkButton.Visible = available;
+        if (!available)
+            Dialogue.Visible = false;
+    }
+
+    /// <summary>Shows where the player is (Village or a Wilderness zone) in the stats panel.</summary>
     public void SetArea(string name, Color color)
     {
         AreaName = name;
@@ -125,18 +151,23 @@ public partial class Hud : CanvasLayer
             return;
         foreach (var each in new Control[] { PetsPanel, SkillsPanel, UpgradesPanel })
             each.Visible = each == panel;
+        Dialogue.Visible = false;
         Refresh();
     }
 
     // --- Builders -------------------------------------------------------------
 
+    private static ProgressBar Bar(float height, Color tint) =>
+        new() { ShowPercentage = false, CustomMinimumSize = new Vector2(0, height), Modulate = tint };
+
     private void BuildStats(Control root)
     {
         var panel = new PanelContainer();
         panel.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.4f, 0.4f, 0.4f)));
-        UiKit.Place(panel, Vector2.Zero, new Vector2(16, 16), new Vector2(280, 0));
+        UiKit.Place(panel, Vector2.Zero, new Vector2(16, 16), new Vector2(300, 0));
         root.AddChild(panel);
         var box = new VBoxContainer();
+        box.AddThemeConstantOverride("separation", 3);
         panel.AddChild(box);
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 10);
@@ -148,18 +179,24 @@ public partial class Hud : CanvasLayer
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
         };
         header.AddChild(_portrait);
-        _areaLabel = UiKit.MakeLabel("", 20, new Color(0.9f, 0.75f, 0.5f));
+        _areaLabel = UiKit.MakeLabel("", 18, new Color(0.9f, 0.75f, 0.5f));
         _areaLabel.VerticalAlignment = VerticalAlignment.Center;
         header.AddChild(_areaLabel);
-        _cpLabel = UiKit.MakeLabel("");
+        _levelLabel = UiKit.MakeLabel("", 16, new Color(1f, 0.95f, 0.6f));
+        box.AddChild(_levelLabel);
+        _xpBar = Bar(8, new Color(1f, 0.9f, 0.4f));
+        box.AddChild(_xpBar);
+        _cpLabel = UiKit.MakeLabel("", 18);
         box.AddChild(_cpLabel);
-        _goldLabel = UiKit.MakeLabel("", 20, new Color(1f, 0.85f, 0.3f));
+        _goldLabel = UiKit.MakeLabel("", 18, new Color(1f, 0.85f, 0.3f));
         box.AddChild(_goldLabel);
-        _hpBar = new ProgressBar { ShowPercentage = false, CustomMinimumSize = new Vector2(0, 14), Modulate = new Color(1f, 0.45f, 0.45f) };
+        _hpBar = Bar(12, new Color(1f, 0.45f, 0.45f));
         box.AddChild(_hpBar);
-        _trainLabel = UiKit.MakeLabel("", 16);
+        _energyBar = Bar(8, new Color(0.45f, 0.75f, 1f));
+        box.AddChild(_energyBar);
+        _trainLabel = UiKit.MakeLabel("", 14);
         box.AddChild(_trainLabel);
-        _trainBar = new ProgressBar { ShowPercentage = false, CustomMinimumSize = new Vector2(0, 10) };
+        _trainBar = Bar(6, Colors.White);
         box.AddChild(_trainBar);
     }
 
@@ -170,12 +207,28 @@ public partial class Hud : CanvasLayer
         UiKit.Place(row, new Vector2(1, 0), new Vector2(-406, 16), new Vector2(390, 56));
         root.AddChild(row);
         foreach (var (text, panel) in new (string, Func<Control>)[]
-                 { ("Pets", () => PetsPanel), ("Skills", () => SkillsPanel), ("Upgrades", () => UpgradesPanel) })
+                 { ("Echoes", () => PetsPanel), ("Skills", () => SkillsPanel), ("Upgrades", () => UpgradesPanel) })
         {
             var button = new Button { Text = text, CustomMinimumSize = new Vector2(123, 56) };
             button.Pressed += () => Open(panel());
             row.AddChild(button);
         }
+    }
+
+    private void BuildQuestTracker(Control root)
+    {
+        _questPanel = new PanelContainer();
+        _questPanel.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.9f, 0.75f, 0.35f)));
+        UiKit.Place(_questPanel, new Vector2(1, 0), new Vector2(-406, 84), new Vector2(390, 0));
+        root.AddChild(_questPanel);
+        var box = new VBoxContainer();
+        _questPanel.AddChild(box);
+        _questTitle = UiKit.MakeLabel("", 17, new Color(1f, 0.85f, 0.4f));
+        _questTitle.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        box.AddChild(_questTitle);
+        _questObjective = UiKit.MakeLabel("", 15, new Color(0.9f, 0.9f, 0.9f));
+        _questObjective.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        box.AddChild(_questObjective);
     }
 
     private void BuildControls(Control root)
@@ -188,8 +241,13 @@ public partial class Hud : CanvasLayer
         UiKit.Place(_attackButton, new Vector2(1, 1), new Vector2(-188, -188), new Vector2(140, 140));
         root.AddChild(_attackButton);
 
-        // Skill buttons (up to 4 slots) sit in an arc around the attack button.
-        foreach (var offset in new[] { new Vector2(-310, -140), new Vector2(-220, -310), new Vector2(-330, -260), new Vector2(-110, -300) })
+        // Skill buttons (up to 6 slots by level) sit in an arc around the attack button.
+        var offsets = new[]
+        {
+            new Vector2(-310, -140), new Vector2(-220, -310), new Vector2(-330, -260),
+            new Vector2(-110, -300), new Vector2(-430, -150), new Vector2(-440, -290),
+        };
+        foreach (var offset in offsets)
         {
             var button = new TouchButton();
             UiKit.Place(button, new Vector2(1, 1), offset, new Vector2(100, 100));
@@ -202,6 +260,13 @@ public partial class Hud : CanvasLayer
         UiKit.Place(_trainButton, new Vector2(0.5f, 1), new Vector2(-130, -110), new Vector2(260, 80));
         _trainButton.Pressed += () => TrainPressed?.Invoke();
         root.AddChild(_trainButton);
+
+        _talkButton = new Button { Text = $"TALK  ({Quests.GiverName})", Visible = false };
+        _talkButton.AddThemeFontSizeOverride("font_size", 24);
+        // Above the Train button: Garrick stands right next to the Training Square.
+        UiKit.Place(_talkButton, new Vector2(0.5f, 1), new Vector2(-170, -200), new Vector2(340, 80));
+        _talkButton.Pressed += () => TalkPressed?.Invoke();
+        root.AddChild(_talkButton);
     }
 
     private void BuildToast(Control root)
@@ -210,7 +275,8 @@ public partial class Hud : CanvasLayer
         _toastLabel.AddThemeFontSizeOverride("font_size", 26);
         _toastLabel.AddThemeColorOverride("font_outline_color", Colors.Black);
         _toastLabel.AddThemeConstantOverride("outline_size", 8);
-        UiKit.Place(_toastLabel, new Vector2(0.5f, 0), new Vector2(-400, 90), new Vector2(800, 40));
+        // Below the quest tracker so long messages don't run into it.
+        UiKit.Place(_toastLabel, new Vector2(0.5f, 0), new Vector2(-400, 170), new Vector2(800, 40));
         root.AddChild(_toastLabel);
     }
 
@@ -218,7 +284,7 @@ public partial class Hud : CanvasLayer
     {
         var panel = new PanelContainer();
         root.AddChild(panel);
-        var (box, _) = UiKit.MakeModal(panel, "Create your adventurer", new Vector2(760, 560), closable: false);
+        var (box, _) = UiKit.MakeModal(panel, "The Adventurer Trial", new Vector2(760, 580), closable: false);
 
         var genderRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         genderRow.AddThemeConstantOverride("separation", 16);
@@ -245,21 +311,22 @@ public partial class Hud : CanvasLayer
             genderButtons.Add(button);
             genderRow.AddChild(button);
         }
-        box.AddChild(UiKit.MakeLabel("Starter skill", 20, new Color(0.9f, 0.75f, 0.5f)));
+        box.AddChild(UiKit.MakeLabel("Touch an awakening stone (your starter skill sets your class lineage)", 18, new Color(0.9f, 0.75f, 0.5f)));
 
         var grid = new GridContainer { Columns = 2 };
         grid.AddThemeConstantOverride("h_separation", 12);
         grid.AddThemeConstantOverride("v_separation", 12);
         box.AddChild(grid);
-        foreach (var skillId in GameConfig.StarterSkills)
+        foreach (var skillId in SkillCatalog.StarterSkills)
         {
-            var skill = GameConfig.Skill(skillId);
+            var skill = SkillCatalog.Get(skillId);
+            var lineage = Lineages.Get(skill.Lineage);
             var button = new Button
             {
-                Text = $"{skill.Name}\n{skill.Desc}",
+                Text = $"{skill.Name}\n{skill.Desc}\n{lineage.Name}: {lineage.Classes[0]}",
                 Icon = CharacterArt.SkillIcon(skillId),
                 ExpandIcon = true,
-                CustomMinimumSize = new Vector2(360, 110),
+                CustomMinimumSize = new Vector2(360, 120),
                 IconAlignment = HorizontalAlignment.Left,
             };
             button.AddThemeColorOverride("font_color", skill.Color);
@@ -267,7 +334,12 @@ public partial class Hud : CanvasLayer
             {
                 Data.ChooseStarter(skillId);
                 panel.Visible = false;
-                Toast($"You learned {skill.Name}!", skill.Color);
+                Toast($"You awakened {skill.Name}! Class: {Data.ClassName}", skill.Color);
+                Dialogue.Say(Quests.PrologueTitle, Quests.PrologueText, "Begin", () =>
+                {
+                    Dialogue.Visible = false;
+                    Toast($"Talk to {Quests.GiverName} at the Training Square.", new Color(1f, 0.9f, 0.4f));
+                });
             };
             grid.AddChild(button);
         }
@@ -278,10 +350,19 @@ public partial class Hud : CanvasLayer
     {
         var panel = new PanelContainer();
         root.AddChild(panel);
-        var (box, _) = UiKit.MakeModal(panel, "Skills", new Vector2(560, 460));
-        _skillsList = new VBoxContainer();
-        _skillsList.AddThemeConstantOverride("separation", 8);
-        box.AddChild(_skillsList);
+        var (box, _) = UiKit.MakeModal(panel, "Skills", new Vector2(820, 600));
+        _skillsHeader = UiKit.MakeLabel("", 16, new Color(0.85f, 0.85f, 0.85f));
+        _skillsHeader.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        box.AddChild(_skillsHeader);
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
+        box.AddChild(scroll);
+        _skillsList = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        _skillsList.AddThemeConstantOverride("separation", 6);
+        scroll.AddChild(_skillsList);
         return panel;
     }
 
@@ -290,6 +371,9 @@ public partial class Hud : CanvasLayer
     private void Refresh()
     {
         _portrait.Texture = CharacterArt.Portrait(Data.Gender);
+        _levelLabel.Text = $"Lv {Data.Level}  {Data.Rank}  •  {Data.ClassName}";
+        _xpBar.MaxValue = GameConfig.XpToNextLevel(Data.Level);
+        _xpBar.Value = Data.Xp;
         _cpLabel.Text = $"CP  {Data.CombatPower()}";
         float income = Data.IncomePerMin();
         _goldLabel.Text = $"Gold  {Data.Gold}" + (income > 0f ? $"   (+{income:0.0}/min)" : "");
@@ -297,6 +381,7 @@ public partial class Hud : CanvasLayer
         _trainLabel.Text = $"Training Lv {Data.TrainingLevel}   ({Data.TrainingXp} / {needed})";
         _trainBar.MaxValue = needed;
         _trainBar.Value = Data.TrainingXp;
+        RefreshQuest();
 
         for (int i = 0; i < _skillButtons.Count; i++)
         {
@@ -304,9 +389,8 @@ public partial class Hud : CanvasLayer
             button.Visible = i < Data.EquippedSkills.Count;
             if (!button.Visible)
                 continue;
-            var skill = GameConfig.Skill(Data.EquippedSkills[i]);
+            var skill = SkillCatalog.Get(Data.EquippedSkills[i]);
             button.Label = skill.Short;
-            button.Tint = skill.Color;
             button.Icon = CharacterArt.SkillIcon(skill.Id);
         }
 
@@ -314,33 +398,69 @@ public partial class Hud : CanvasLayer
             RefreshSkills();
     }
 
+    private void RefreshQuest()
+    {
+        var quest = Data.CurrentQuest;
+        _questPanel.Visible = Data.HasStarter;
+        if (quest == null)
+        {
+            _questTitle.Text = "Story complete (for now)";
+            _questObjective.Text = "More chapters are on the way.";
+            return;
+        }
+        _questTitle.Text = $"Ch {quest.Chapter}  •  {quest.Title}";
+        _questObjective.Text = !Data.QuestAccepted ? $"Talk to {Quests.GiverName} at the Training Square."
+            : Data.QuestReady ? $"Done! Return to {Quests.GiverName}."
+            : quest.Count > 1 ? $"{quest.Objective}  ({Data.QuestProgress}/{quest.Count})"
+            : quest.Objective;
+    }
+
     private void RefreshSkills()
     {
         foreach (var child in _skillsList.GetChildren())
             child.QueueFree();
-        _skillsList.AddChild(UiKit.MakeLabel(
-            $"Skill slots: {Data.EquippedSkills.Count} / {Data.SkillSlots}   (buy more in Upgrades)", 16));
-        foreach (var skill in GameConfig.Skills)
+        int nextSlotLevel = GameConfig.SkillSlotLevels.FirstOrDefault(l => l > Data.Level);
+        _skillsHeader.Text = Data.Lineage == "" ? "Choose a starter skill first."
+            : $"{Lineages.Get(Data.Lineage).Name} lineage  •  {Data.ClassName} (Tier {Data.ClassTier})  •  " +
+              $"Slots {Data.EquippedSkills.Count}/{Data.SkillSlots}" +
+              (nextSlotLevel > 0 ? $" (next at Lv {nextSlotLevel})" : "") +
+              "\nUsing a skill against enemies near your level raises its mastery (rank 20 max).";
+
+        // Owned skills first, then the rest of your lineage's catalog.
+        foreach (var skill in SkillCatalog.All.Where(s => Data.OwnedSkills.Contains(s.Id)))
+            _skillsList.AddChild(OwnedSkillRow(skill));
+        if (Data.Lineage != "")
         {
-            var row = new HBoxContainer();
-            bool owned = Data.OwnedSkills.Contains(skill.Id);
-            var label = UiKit.MakeLabel(owned ? $"{skill.Name} — {skill.Desc}" : "???  (find in skill boxes)", 20,
-                owned ? skill.Color : new Color(0.5f, 0.5f, 0.5f));
-            label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            row.AddChild(label);
-            if (owned)
+            foreach (var skill in SkillCatalog.LineageSkills(Data.Lineage).Where(s => !Data.OwnedSkills.Contains(s.Id)))
             {
-                var button = new Button
-                {
-                    Text = Data.EquippedSkills.Contains(skill.Id) ? "Equipped" : "Equip",
-                    CustomMinimumSize = new Vector2(120, 48),
-                };
-                string id = skill.Id;
-                button.Pressed += () => Data.ToggleEquip(id);
-                row.AddChild(button);
+                string status = !skill.Implemented ? "coming in a future update"
+                    : skill.UnlockLevel > Data.Level ? $"unlocks at Lv {skill.UnlockLevel}"
+                    : "drops from skill boxes";
+                _skillsList.AddChild(UiKit.MakeLabel($"{skill.Code}  {skill.Name}: {skill.Desc}  ({status})", 15, new Color(0.55f, 0.55f, 0.55f)));
             }
-            _skillsList.AddChild(row);
         }
+    }
+
+    private Control OwnedSkillRow(SkillInfo skill)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 10);
+        var label = UiKit.MakeLabel(
+            $"{skill.Name}  •  Mastery {Data.MasteryRank(skill.Id)}  •  {skill.Cost} energy, {skill.Cooldown * Data.SkillCooldownMult(skill.Id):0.0}s\n{skill.Desc}",
+            16, skill.Color);
+        label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        row.AddChild(label);
+        bool equipped = Data.EquippedSkills.Contains(skill.Id);
+        var button = new Button
+        {
+            Text = equipped ? "Equipped" : "Equip",
+            CustomMinimumSize = new Vector2(120, 48),
+            Disabled = !equipped && Data.EquippedSkills.Count >= Data.SkillSlots,
+        };
+        string id = skill.Id;
+        button.Pressed += () => Data.ToggleEquip(id);
+        row.AddChild(button);
+        return row;
     }
 
     private void ShowNextToast()

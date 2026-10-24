@@ -18,6 +18,7 @@ public partial class PetsPanel : PanelContainer
     private Label _infoLabel = null!;
     private ProgressBar _xpBar = null!;
     private Button _fenceButton = null!;
+    private Button _battleButton = null!;
     private Button _feedButton = null!;
     private Button _feedManyButton = null!;
     private Label _mergeLabel = null!;
@@ -33,7 +34,7 @@ public partial class PetsPanel : PanelContainer
 
     public override void _Ready()
     {
-        var (box, _) = UiKit.MakeModal(this, "Pets", new Vector2(1120, 620));
+        var (box, _) = UiKit.MakeModal(this, "Echo Companions", new Vector2(1120, 620));
         _summary = UiKit.MakeLabel("", 16, new Color(0.8f, 0.8f, 0.8f));
         box.AddChild(_summary);
 
@@ -61,6 +62,7 @@ public partial class PetsPanel : PanelContainer
         _xpBar = AddToDetail(new ProgressBar { ShowPercentage = false, CustomMinimumSize = new Vector2(0, 10) });
 
         _fenceButton = MakeAction(OnFence);
+        _battleButton = MakeAction(OnBattle);
         var feedRow = AddToDetail(new HBoxContainer());
         feedRow.AddThemeConstantOverride("separation", 8);
         _feedButton = MakeAction(() => Data.FeedTreats(SelectedId, 1), feedRow);
@@ -131,7 +133,7 @@ public partial class PetsPanel : PanelContainer
                 CustomMinimumSize = new Vector2(220, 92),
                 Alignment = HorizontalAlignment.Left,
                 Text = $"{pet.Size} {pet.Species}  {new string('★', pet.Stars)}\nLv {pet.Level}" +
-                    (pet.Role == PetRole.Fence ? "   • In fence" : ""),
+                    (pet.Role == PetRole.Fence ? "   • In fence" : pet.Role == PetRole.Battle ? "   • Battle" : ""),
             };
             card.AddThemeFontSizeOverride("font_size", 16);
             card.AddThemeColorOverride("font_color", color.Lightened(0.3f));
@@ -149,7 +151,7 @@ public partial class PetsPanel : PanelContainer
             _grid.AddChild(card);
         }
         if (Data.Pets.Count == 0)
-            _grid.AddChild(UiKit.MakeLabel("No pets yet. Defeat monsters in the Wilderness!", 18));
+            _grid.AddChild(UiKit.MakeLabel("No Echoes yet. Defeated monsters sometimes leave one behind.", 18));
     }
 
     private void RefreshDetail()
@@ -170,7 +172,7 @@ public partial class PetsPanel : PanelContainer
         _nameLabel.AddThemeColorOverride("font_color", color.Lightened(0.2f));
         _infoLabel.Text = $"{pet.Rarity}  •  Level {pet.Level} / {maxLevel}\n" +
             $"Power {(int)Data.PetPower(pet)}  •  Income {Data.PetIncomePerMin(pet):0.00} gold/min\n" +
-            $"Role: {(pet.Role == PetRole.Fence ? "Fence (earning gold)" : "Resting")}";
+            $"Role: {pet.Role switch { PetRole.Fence => "Fence (earning gold)", PetRole.Battle => "Battle companion (fights beside you)", _ => "Resting" }}";
         _xpBar.MaxValue = GameConfig.PetXpNeeded(pet.Level);
         _xpBar.Value = pet.Level < maxLevel ? pet.Xp : _xpBar.MaxValue;
 
@@ -178,6 +180,8 @@ public partial class PetsPanel : PanelContainer
         bool fenceFull = Data.FencedPets().Count >= Data.FenceSlots;
         _fenceButton.Text = fenced ? "Remove from fence" : fenceFull ? "Fence is full" : "Put in fence";
         _fenceButton.Disabled = !fenced && fenceFull;
+        bool battling = pet.Role == PetRole.Battle;
+        _battleButton.Text = battling ? "Stop battling" : $"Battle companion ({Data.BattlePetDamage(pet):0} dmg)";
 
         bool atCap = pet.Level >= maxLevel;
         _feedButton.Text = atCap ? "Max level" : $"Feed treat ({GameConfig.TreatCost}g)";
@@ -228,6 +232,13 @@ public partial class PetsPanel : PanelContainer
         var pet = Data.FindPet(SelectedId);
         if (pet != null)
             Data.SetFenced(SelectedId, pet.Role != PetRole.Fence);
+    }
+
+    private void OnBattle()
+    {
+        var pet = Data.FindPet(SelectedId);
+        if (pet != null)
+            Data.SetBattlePet(SelectedId, pet.Role != PetRole.Battle);
     }
 
     private void OnRelease()

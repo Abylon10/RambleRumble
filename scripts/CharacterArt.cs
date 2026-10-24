@@ -73,9 +73,15 @@ public static class CharacterArt
 
     public static Texture2D Portrait(string gender) => GD.Load<Texture2D>($"res://art/portraits/{gender}.png");
 
+    /// <summary>The skill's own icon, else its lineage starter's icon (until each skill has art).</summary>
     public static Texture2D? SkillIcon(string skillId)
     {
         string path = $"res://art/icons/{skillId}.png";
-        return ResourceLoader.Exists(path) ? GD.Load<Texture2D>(path) : null;
+        if (ResourceLoader.Exists(path))
+            return GD.Load<Texture2D>(path);
+        if (!SkillCatalog.Exists(skillId))
+            return null;
+        string starter = Lineages.Get(SkillCatalog.Get(skillId).Lineage).StarterSkill;
+        return starter != "" && starter != skillId ? SkillIcon(starter) : null;
     }
 }

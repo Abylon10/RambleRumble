@@ -5,6 +5,8 @@ public enum PetRole
 {
     None,
     Fence,
+    /// <summary>Follows and fights beside the player; earns no fence gold.</summary>
+    Battle,
 }
 
 /// <summary>A collected pet. Plain data, saved to JSON as-is.</summary>

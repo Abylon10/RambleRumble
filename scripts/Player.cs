@@ -7,8 +7,9 @@ namespace RambleRumble;
 
 /// <summary>
 /// The player's character: movement (keyboard or virtual joystick), a basic
-/// attack, and the equipped skills. Attacks auto-aim at the nearest monster,
-/// which matters on touch screens. Drawn with the animated character art.
+/// attack, and the equipped skills (cast by <see cref="SkillExecutor"/>, paid
+/// for with Rumble energy). Attacks auto-aim at the nearest monster, which
+/// matters on touch screens. Drawn with the animated character art.
 /// </summary>
 public partial class Player : CharacterBody2D
 {
@@ -22,6 +23,9 @@ public partial class Player : CharacterBody2D
     private const float DashTime = 0.16f;
     /// <summary>How far below the body centre the sprite's feet sit.</summary>
     private const float FeetY = 20f;
+    /// <summary>A skill only trains mastery if a non-trivial monster is this close.</summary>
+    private const float MasteryRange = 450f;
+    public const int MaxSkillSlots = 6;
 
     public float Hp { get; private set; } = 100f;
     public Vector2 JoystickVector { get; set; }
@@ -29,6 +33,11 @@ public partial class Player : CharacterBody2D
     public bool InSafeZone { get; set; } = true;
     /// <summary>True while at a Wilderness campfire (World heals the player there).</summary>
     public bool Resting { get; set; }
+    /// <summary>Rumble energy spent by skills; regenerates over time.</summary>
+    public float Energy { get; private set; } = GameConfig.BaseMaxEnergy;
+    /// <summary>Damage multiplier from Surge skills (1 when inactive).</summary>
+    public float SurgeMult => _surgeLeft > 0f ? _surgeMult : 1f;
+    public bool Guarding => _guardLeft > 0f;
 
     /// <summary>Action id -> seconds of cooldown left.</summary>
     private readonly Dictionary<string, float> _cooldowns = new();
@@ -38,6 +47,10 @@ public partial class Player : CharacterBody2D
     private readonly HashSet<Monster> _dashHit = new();
     private float _invuln;
     private float _flash;
+    private float _surgeLeft;
+    private float _surgeMult = 1f;
+    private float _guardLeft;
+    private float _guardReduction;
     private AnimatedSprite2D _sprite = null!;
     private string _spriteGender = "";
     private bool _playingOneShot;
@@ -105,6 +118,9 @@ public partial class Player : CharacterBody2D
             _cooldowns[key] = Mathf.Max(0f, _cooldowns[key] - dt);
         _invuln = Mathf.Max(0f, _invuln - dt);
         _flash = Mathf.Max(0f, _flash - dt);
+        _surgeLeft = Mathf.Max(0f, _surgeLeft - dt);
+        _guardLeft = Mathf.Max(0f, _guardLeft - dt);
+        Energy = Mathf.Min(Data.MaxEnergy, Energy + GameConfig.EnergyRegenPerSec * dt);
         QueueRedraw();
 
         if (_dashLeft > 0f)
@@ -127,7 +143,7 @@ public partial class Player : CharacterBody2D
 
         if (Input.IsActionPressed("attack"))
             BasicAttack();
-        for (int slot = 0; slot < 4; slot++)
+        for (int slot = 0; slot < MaxSkillSlots; slot++)
         {
             if (Input.IsActionJustPressed($"skill_{slot + 1}"))
                 UseSkill(slot);
@@ -144,64 +160,69 @@ public partial class Player : CharacterBody2D
             return;
         Aim();
         PlayOneShot("attack");
-        float damage = Data.AttackPower * GameConfig.BasicAttackDamage;
+        float damage = Data.AttackPower * GameConfig.BasicAttackDamage * SurgeMult;
         foreach (var monster in MonstersInArc(GameConfig.BasicAttackRange))
             monster.TakeDamage(damage);
         Fx.Spawn(GetParent(), GlobalPosition + Facing * 34f, FxKind.Ring, radius: 30f, duration: 0.15f);
     }
 
-    public void UseSkill(int slot)
+    /// <summary>Casts the skill in an equipped slot if it's off cooldown and affordable.</summary>
+    public bool UseSkill(int slot)
     {
         if (slot >= Data.EquippedSkills.Count)
-            return;
-        var skill = GameConfig.Skill(Data.EquippedSkills[slot]);
-        if (!StartCooldown(skill.Id, skill.Cooldown))
-            return;
+            return false;
+        var skill = SkillCatalog.Get(Data.EquippedSkills[slot]);
+        if (!skill.Implemented || Energy < skill.Cost || _cooldowns.GetValueOrDefault(skill.Id) > 0f)
+            return false;
+        _cooldowns[skill.Id] = skill.Cooldown * Data.SkillCooldownMult(skill.Id);
+        Energy -= skill.Cost;
         Aim();
         PlayOneShot("attack");
-        float damage = Data.AttackPower * skill.Damage;
-        switch (skill.Id)
-        {
-            case "flame_fist":
-                foreach (var monster in MonstersInArc(84f))
-                {
-                    monster.TakeDamage(damage);
-                    monster.Burn(damage * 0.25f, 2f);
-                }
-                Fx.Spawn(GetParent(), GlobalPosition + Facing * 45f, FxKind.Circle, skill.Color, radius: 46f, duration: 0.25f);
-                break;
-            case "wind_slash":
-                GetParent().AddChild(new Projectile
-                {
-                    Position = GlobalPosition + Facing * 20f,
-                    Direction = Facing,
-                    Damage = damage,
-                    Tint = skill.Color,
-                });
-                break;
-            case "stone_breaker":
-                foreach (var monster in AllMonsters().Where(m => m.GlobalPosition.DistanceTo(GlobalPosition) <= 120f + m.Radius))
-                {
-                    monster.TakeDamage(damage);
-                    monster.Stun(1.2f);
-                }
-                Fx.Spawn(GetParent(), GlobalPosition, FxKind.Ring, skill.Color, radius: 120f, duration: 0.35f);
-                break;
-            case "thunder_dash":
-                _dashLeft = DashTime;
-                _dashDir = Facing;
-                _dashDamage = damage;
-                _dashHit.Clear();
-                _invuln = DashTime + 0.1f;
-                Fx.Spawn(GetParent(), GlobalPosition, FxKind.Line, skill.Color, duration: 0.3f, to: Facing * DashSpeed * DashTime);
-                break;
-        }
+        float damage = Data.AttackPower * skill.Damage * Data.SkillDamageMult(skill.Id) * SurgeMult;
+        SkillExecutor.Cast(this, skill, damage);
+        if (InMeaningfulFight())
+            Data.AddMastery(skill.Id, GameConfig.MasteryPerUse);
+        return true;
     }
+
+    /// <summary>Mastery only grows against enemies that aren't far below the player's level.</summary>
+    private bool InMeaningfulFight() => AllMonsters().Any(m =>
+        m.GlobalPosition.DistanceTo(GlobalPosition) < MasteryRange && m.Level >= Data.Level - GameConfig.TrivialLevelGap);
+
+    public void StartDash(float damage, Color color)
+    {
+        _dashLeft = DashTime;
+        _dashDir = Facing;
+        _dashDamage = damage;
+        _dashHit.Clear();
+        _invuln = DashTime + 0.1f;
+        Fx.Spawn(GetParent(), GlobalPosition, FxKind.Line, color, duration: 0.3f, to: Facing * DashSpeed * DashTime);
+    }
+
+    public void ApplySurge(float multiplier, float seconds)
+    {
+        _surgeMult = multiplier;
+        _surgeLeft = seconds;
+    }
+
+    /// <param name="reduction">Fraction of incoming damage blocked (0.5 = half).</param>
+    public void ApplyGuard(float reduction, float seconds)
+    {
+        _guardReduction = reduction;
+        _guardLeft = seconds;
+    }
+
+    /// <summary>Tops energy up (e.g. when returning to the village).</summary>
+    public void RefillEnergy() => Energy = Data.MaxEnergy;
+
+    public void SetEnergy(float value) => Energy = Mathf.Clamp(value, 0f, Data.MaxEnergy);
 
     public void TakeDamage(float amount)
     {
         if (_invuln > 0f || InSafeZone)
             return;
+        if (Guarding)
+            amount *= 1f - _guardReduction;
         Hp -= amount;
         _flash = 0.12f;
         PlayOneShot("hurt");
@@ -225,7 +246,7 @@ public partial class Player : CharacterBody2D
         return true;
     }
 
-    private IEnumerable<Monster> AllMonsters() => GetTree().GetNodesInGroup("monsters").OfType<Monster>();
+    public IEnumerable<Monster> AllMonsters() => GetTree().GetNodesInGroup("monsters").OfType<Monster>();
 
     private void Aim()
     {
@@ -236,7 +257,7 @@ public partial class Player : CharacterBody2D
             Facing = (nearest.GlobalPosition - GlobalPosition).Normalized();
     }
 
-    private List<Monster> MonstersInArc(float reach)
+    public List<Monster> MonstersInArc(float reach)
     {
         return AllMonsters().Where(m =>
         {
@@ -253,7 +274,7 @@ public partial class Player : CharacterBody2D
         {
             if (_dashHit.Contains(monster))
                 continue;
-            if (monster.GlobalPosition.DistanceTo(GlobalPosition) <= BodyRadius + monster.Radius + 16f)
+            if (_dashDamage > 0f && monster.GlobalPosition.DistanceTo(GlobalPosition) <= BodyRadius + monster.Radius + 16f)
             {
                 _dashHit.Add(monster);
                 monster.TakeDamage(_dashDamage);
@@ -267,5 +288,9 @@ public partial class Player : CharacterBody2D
         Shapes.Ellipse(this, new Vector2(0, FeetY - 2), new Vector2(BodyRadius, BodyRadius * 0.35f), new Color(0, 0, 0, 0.3f));
         if (_invuln > 0f)
             Shapes.Ring(this, Vector2.Zero, BodyRadius + 5, new Color(1f, 0.95f, 0.4f, 0.8f));
+        if (Guarding)
+            Shapes.Ring(this, Vector2.Zero, BodyRadius + 9, new Color(1f, 0.6f, 0.2f, 0.7f));
+        if (_surgeLeft > 0f)
+            Shapes.Ring(this, new Vector2(0, FeetY - 2), BodyRadius * 0.9f, new Color(1f, 0.45f, 0.15f, 0.6f));
     }
 }

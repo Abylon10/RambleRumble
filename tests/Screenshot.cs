@@ -21,8 +21,32 @@ public partial class Screenshot : Node
 
         if (args.Contains("starter"))
         {
-            data.ChooseStarter("wind_slash");
+            data.ChooseStarter(args.Contains("ember") ? "flame_fist" : "wind_slash");
             world.Hud.StarterPanel.Visible = false;
+        }
+        // Story states: "garrick" stands by Garrick and talks; "swarm" goes to the Chapter 1 swarm;
+        // "skills" opens the Skills panel.
+        if (args.Contains("garrick"))
+        {
+            world.Player.GlobalPosition = LobbyMap.QuestGiver + new Vector2(60, 40);
+            world.TalkToQuestGiver();
+        }
+        if (args.Contains("swarm"))
+        {
+            data.AcceptQuest();
+            data.Train(100f);
+            data.TurnInQuest();
+            data.AcceptQuest();
+            world.Teleport(Zones.ArrivalPoint, toWilderness: true);
+            world.Player.GlobalPosition = Zones.StorySwarm + new Vector2(-260, 40);
+        }
+        if (args.Contains("skills"))
+        {
+            data.DebugUnlockWorld(22);
+            foreach (var id in new[] { "ember_spark", "ember_arc", "ember_surge" })
+                data.OwnedSkills.Add(id);
+            data.AddMastery("flame_fist", 90);
+            world.Hud.Open(world.Hud.SkillsPanel);
         }
         if (args.Contains("pets") || args.Contains("upgrades") || args.Contains("fence"))
         {
@@ -49,6 +73,7 @@ public partial class Screenshot : Node
         {
             if (arg.StartsWith("at="))
             {
+                data.DebugUnlockWorld();
                 var xy = arg[3..].Split(',');
                 world.Player.GlobalPosition = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
                 world.Player.InSafeZone = true;

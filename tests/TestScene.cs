@@ -27,4 +27,9 @@ public abstract partial class TestScene : Node
     }
 
     protected SignalAwaiter PhysicsFrame() => ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+
+    /// <summary>One rendered frame. Use when waiting on _Process logic: several physics steps can run per frame.</summary>
+    protected SignalAwaiter ProcessFrame() => ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+    protected SignalAwaiter Wait(double seconds) => ToSignal(GetTree().CreateTimer(seconds), SceneTreeTimer.SignalName.Timeout);
 }

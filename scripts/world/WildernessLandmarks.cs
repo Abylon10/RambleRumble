@@ -2,7 +2,7 @@ using Godot;
 
 namespace RambleRumble;
 
-/// <summary>Wilderness border, campfires, swarm marker and the gate back to the Lobby.</summary>
+/// <summary>Wilderness border, campfires, swarm marker and the gate back to Hearthwood.</summary>
 public partial class WildernessLandmarks : Node2D
 {
     public override void _Draw()
@@ -18,7 +18,7 @@ public partial class WildernessLandmarks : Node2D
         foreach (var fire in Zones.Campfires)
             MapArt.Campfire(this, fire, Zones.CampfireRadius);
         DrawSwarmMarker();
-        MapArt.Portal(this, Zones.Gate, "LOBBY");
+        MapArt.Portal(this, Zones.Gate, "HEARTHWOOD");
     }
 
     private void DrawSwarmMarker()
@@ -31,6 +31,6 @@ public partial class WildernessLandmarks : Node2D
         DrawCircle(at + new Vector2(-10, -8), 7, Colors.Black);
         DrawCircle(at + new Vector2(10, -8), 7, Colors.Black);
         MapArt.Label(this, at + new Vector2(0, -90), "WORLD BOSS / SWARMS", 18, new Color(0.85f, 0.65f, 1f));
-        MapArt.Label(this, at + new Vector2(0, 100), "(Phase 3)", 14, new Color(1, 1, 1, 0.6f));
+        MapArt.Label(this, at + new Vector2(0, 100), "(coming later)", 14, new Color(1, 1, 1, 0.6f));
     }
 }

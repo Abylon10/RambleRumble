@@ -64,7 +64,7 @@ public partial class UpgradesPanel : PanelContainer
     private static string CurrentEffect(string upgradeId) => upgradeId switch
     {
         "fence_slots" => $"{Data.FenceSlots} fence slots",
-        "skill_slots" => $"{Data.SkillSlots} skill slots",
+        "energy_well" => $"{Data.MaxEnergy:0} max energy",
         "training_ground" => $"x{Data.TrainingMultiplier:0.00} training XP",
         "pet_lab" => $"up to {Data.MaxStarsUnlocked}★, -{(int)(Data.MergeDiscount * 100)}% merge cost",
         _ => "",

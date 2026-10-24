@@ -5,7 +5,7 @@ using Godot;
 namespace RambleRumble;
 
 /// <summary>
-/// Shows fenced pets wandering inside the Lobby fence, drawn at their size,
+/// Shows fenced pets wandering inside the ranch fence, drawn at their size,
 /// with occasional "+gold" pops so passive income is visible.
 /// </summary>
 public partial class FenceDisplay : Node2D

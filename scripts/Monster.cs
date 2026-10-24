@@ -22,6 +22,10 @@ public partial class Monster : CharacterBody2D
     /// <summary>Id of the Wilderness zone that spawned it ("" if spawned directly).</summary>
     public string ZoneId { get; private set; } = "";
     public float Radius { get; private set; } = 16f;
+    /// <summary>Red-streaked by corrupted Rumble (story swarms).</summary>
+    public bool Corrupted { get; set; }
+    /// <summary>Species level, used for XP and to decide whether fights train skill mastery.</summary>
+    public int Level => _species.Level;
 
     private GameConfig.SpeciesInfo _species = GameConfig.Species[0];
     private float _hp = 1f;
@@ -38,6 +42,8 @@ public partial class Monster : CharacterBody2D
     private float _wanderTimer;
     private bool _dead;
     private bool _asleep;
+    private bool _elite;
+    private string _eliteTitle = "";
 
     public void Setup(string speciesId, Vector2 position, Player target, string zoneId = "")
     {
@@ -56,19 +62,30 @@ public partial class Monster : CharacterBody2D
         CollisionLayer = 2;
         CollisionMask = 4;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Radius } });
+        if (_elite)
+            AddChild(MakeBossLabel(_eliteTitle));
         if (_species.Rarity == "Mythic")
-            AddChild(MakeBossLabel());
+            AddChild(MakeBossLabel($"BOSS: {_species.Name.ToUpper()}"));
+    }
+
+    /// <summary>Turns this monster into a tougher, bigger, labelled leader (call before adding to the tree).</summary>
+    public void MakeElite(string title)
+    {
+        _maxHp = _hp = _species.Hp * 4f;
+        Radius *= 1.5f;
+        _elite = true;
+        _eliteTitle = title;
     }
 
     /// <summary>
     /// A Label node shapes its text once; drawing the same outlined text from
     /// _Draw every frame cost ~10 ms each time on a laptop GPU.
     /// </summary>
-    private Label MakeBossLabel()
+    private Label MakeBossLabel(string text)
     {
         var label = new Label
         {
-            Text = $"BOSS: {_species.Name.ToUpper()}",
+            Text = text,
             HorizontalAlignment = HorizontalAlignment.Center,
             Size = new Vector2(240, 24),
             Position = new Vector2(-120, -Radius - 40),
@@ -174,6 +191,8 @@ public partial class Monster : CharacterBody2D
         var body = _flash > 0f ? Colors.White : _species.Color;
         if (_burnLeft > 0f)
             body = body.Lerp(new Color(1f, 0.4f, 0.1f), 0.35f);
+        if (Corrupted)
+            Shapes.Circle(this, Vector2.Zero, Radius + 6f, new Color(1f, 0.15f, 0.15f, 0.35f));
         Shapes.Circle(this, Vector2.Zero, Radius, body);
         Shapes.Ring(this, Vector2.Zero, Radius + 1f, GameConfig.RarityColor(_species.Rarity));
         var eyeDir = (_target.GlobalPosition - GlobalPosition).Normalized() * Radius * 0.35f;

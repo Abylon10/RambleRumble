@@ -24,11 +24,9 @@ public static class GameConfig
     /// <param name="Cost">Gold cost of the merge that reaches this rank.</param>
     public record StarInfo(int MaxLevel, float Mult, int Copies, int Cost);
 
+    /// <param name="Level">Recommended player level; sets kill XP and whether a fight trains skill mastery.</param>
     public record SpeciesInfo(string Name, string Rarity, float Hp, float Damage, float Speed, float Radius,
-        float PetPower, int GoldMin, int GoldMax, Color Color);
-
-    /// <param name="Damage">Multiplier on the player's attack power.</param>
-    public record SkillInfo(string Id, string Name, string Short, string Desc, float Cooldown, float Damage, int Cp, Color Color);
+        float PetPower, int GoldMin, int GoldMax, Color Color, int Level);
 
     /// <summary>Cost of the next level = BaseCost * Growth ^ current level.</summary>
     public record UpgradeInfo(string Id, string Name, string Desc, int Max, int BaseCost, float Growth);
@@ -80,7 +78,7 @@ public static class GameConfig
     public static readonly UpgradeInfo[] Upgrades =
     {
         new("fence_slots", "Fence Slots", "+1 pet earning gold in the fence", 9, 200, 1.7f),
-        new("skill_slots", "Skill Slots", "+1 equipped skill", 2, 2000, 5.0f),
+        new("energy_well", "Energy Well", "+10 max Rumble energy", 5, 800, 2.0f),
         new("training_ground", "Training Ground", "+25% training XP", 10, 300, 1.8f),
         new("pet_lab", "Pet Lab", "Unlocks the next star rank, -10% merge cost", 2, 5000, 5.0f),
     };
@@ -88,27 +86,18 @@ public static class GameConfig
     // Which zone each species lives in is set in Zones.cs.
     public static readonly SpeciesInfo[] Species =
     {
-        new("Slime", "Common", 45f, 5f, 70f, 16f, 10f, 2, 5, new Color(0.45f, 0.85f, 0.45f)),
-        new("Shroom", "Common", 55f, 6f, 60f, 17f, 12f, 3, 6, new Color(0.85f, 0.40f, 0.35f)),
-        new("Wolf", "Uncommon", 80f, 8f, 115f, 18f, 18f, 5, 9, new Color(0.60f, 0.58f, 0.62f)),
-        new("Aqua Slime", "Uncommon", 90f, 7f, 80f, 18f, 20f, 6, 10, new Color(0.35f, 0.65f, 0.95f)),
-        new("Goblin", "Rare", 130f, 12f, 90f, 17f, 30f, 10, 18, new Color(0.55f, 0.65f, 0.25f)),
-        new("Boar", "Rare", 170f, 15f, 140f, 21f, 40f, 14, 24, new Color(0.55f, 0.38f, 0.25f)),
-        new("Crystal Bat", "Epic", 260f, 22f, 150f, 17f, 60f, 30, 50, new Color(0.55f, 0.40f, 0.95f)),
-        new("Fire Imp", "Legendary", 480f, 35f, 120f, 19f, 100f, 70, 110, new Color(0.95f, 0.35f, 0.15f)),
-        new("Stone Golem", "Mythic", 1800f, 60f, 55f, 34f, 180f, 300, 500, new Color(0.45f, 0.55f, 0.55f)),
+        new("Slime", "Common", 45f, 5f, 70f, 16f, 10f, 2, 5, new Color(0.45f, 0.85f, 0.45f), 1),
+        new("Shroom", "Common", 55f, 6f, 60f, 17f, 12f, 3, 6, new Color(0.85f, 0.40f, 0.35f), 5),
+        new("Wolf", "Uncommon", 80f, 8f, 115f, 18f, 18f, 5, 9, new Color(0.60f, 0.58f, 0.62f), 8),
+        new("Aqua Slime", "Uncommon", 90f, 7f, 80f, 18f, 20f, 6, 10, new Color(0.35f, 0.65f, 0.95f), 10),
+        new("Goblin", "Rare", 130f, 12f, 90f, 17f, 30f, 10, 18, new Color(0.55f, 0.65f, 0.25f), 15),
+        new("Boar", "Rare", 170f, 15f, 140f, 21f, 40f, 14, 24, new Color(0.55f, 0.38f, 0.25f), 20),
+        new("Crystal Bat", "Epic", 260f, 22f, 150f, 17f, 60f, 30, 50, new Color(0.55f, 0.40f, 0.95f), 35),
+        new("Fire Imp", "Legendary", 480f, 35f, 120f, 19f, 100f, 70, 110, new Color(0.95f, 0.35f, 0.15f), 50),
+        new("Stone Golem", "Mythic", 1800f, 60f, 55f, 34f, 180f, 300, 500, new Color(0.45f, 0.55f, 0.55f), 70),
     };
 
-    public static readonly SkillInfo[] Skills =
-    {
-        new("flame_fist", "Flame Fist", "Flame", "Burning melee strike", 1.5f, 1.6f, 40, new Color(1.00f, 0.45f, 0.15f)),
-        new("wind_slash", "Wind Slash", "Wind", "Fast ranged slash", 1.2f, 1.2f, 40, new Color(0.45f, 0.90f, 1.00f)),
-        new("stone_breaker", "Stone Breaker", "Stone", "Heavy stun attack", 4.0f, 2.0f, 40, new Color(0.70f, 0.52f, 0.32f)),
-        new("thunder_dash", "Thunder Dash", "Dash", "Mobility and burst damage", 3.0f, 1.5f, 40, new Color(1.00f, 0.90f, 0.25f)),
-    };
-    public static readonly string[] StarterSkills = { "flame_fist", "wind_slash", "stone_breaker", "thunder_dash" };
-    public const int BaseSkillSlots = 2;
-    public const int SkillBoxDuplicateGold = 50;
+    // Skills (starters and the Ember lineage) live in SkillCatalog.cs.
 
     public const float BasicAttackCooldown = 0.45f;
     public const float BasicAttackDamage = 1.0f;
@@ -124,12 +113,52 @@ public static class GameConfig
     public static int RarityIndex(string name) => Array.FindIndex(Rarities, r => r.Name == name);
     public static Color RarityColor(string name) => Rarity(name).Color;
     public static SpeciesInfo SpeciesOf(string name) => Species.First(s => s.Name == name);
-    public static SkillInfo Skill(string id) => Skills.First(s => s.Id == id);
     public static UpgradeInfo Upgrade(string id) => Upgrades.First(u => u.Id == id);
     public static StarInfo Star(int stars) => StarTable[stars - 1];
     public static SizeInfo Size(string name) => Sizes.FirstOrDefault(s => s.Name == name) ?? Sizes[1];
 
     public static int TrainingXpNeeded(int level) => 10 + 5 * level;
+
+    // --- Character level (separate from training) -----------------------------
+
+    public const int MaxLevel = 200;
+
+    /// <summary>XP from <paramref name="level"/> to the next level.</summary>
+    public static int XpToNextLevel(int level) => (int)Math.Round(30 + 15 * Math.Pow(level, 1.2));
+
+    /// <summary>Kill XP: tougher (higher-level) species give more; bosses five times as much.</summary>
+    public static int KillXp(SpeciesInfo species) => (8 + 4 * species.Level) * (species.Rarity == "Mythic" ? 5 : 1);
+
+    /// <summary>Character levels that each unlock one more equipped skill slot.</summary>
+    public static readonly int[] SkillSlotLevels = { 1, 25, 60, 100, 150, 200 };
+
+    public static int SkillSlotsAt(int level) => SkillSlotLevels.Count(l => level >= l);
+
+    public record RankInfo(int MinLevel, string Name);
+
+    public static readonly RankInfo[] Ranks =
+    {
+        new(1, "Novice"), new(21, "Apprentice"), new(41, "Adept"), new(61, "Veteran"), new(81, "Elite"),
+        new(101, "Master"), new(121, "Grandmaster"), new(141, "Champion"), new(161, "Legendary"), new(181, "Ascended"),
+    };
+
+    public static string RankAt(int level) => Ranks.Last(r => level >= r.MinLevel).Name;
+
+    // --- Rumble energy and skill mastery --------------------------------------
+
+    public const float BaseMaxEnergy = 100f;
+    public const float EnergyPerWellLevel = 10f;
+    public const float EnergyRegenPerSec = 10f;
+
+    public const int MaxMasteryRank = 20;
+    /// <summary>Mastery XP from rank r to r + 1.</summary>
+    public static int MasteryXpToNext(int rank) => 20 * rank;
+    /// <summary>Mastery XP for each skill use that hits a non-trivial enemy.</summary>
+    public const int MasteryPerUse = 3;
+    /// <summary>Mastery XP when a skill box rolls a skill you already have.</summary>
+    public const int MasteryFromDuplicateBox = 60;
+    /// <summary>Enemies this many levels below the player no longer train mastery.</summary>
+    public const int TrivialLevelGap = 10;
     public static int PetXpNeeded(int level) => 20 + 10 * (level - 1);
 
     public static int UpgradeCost(string id, int currentLevel)

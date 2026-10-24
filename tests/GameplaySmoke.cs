@@ -43,15 +43,14 @@ public partial class GameplaySmoke : TestScene
         Check(world.InWilderness && !player.InSafeZone, "portal moves player into the Wilderness");
         Check(world.CurrentZone?.Id == "A", "players arrive in Starter Plains");
 
-        // Learn every skill and buy both extra slots so all four buttons are used.
+        // Learn every starter and reach level 100 (4 skill slots) so four buttons are used.
         foreach (var id in new[] { "wind_slash", "stone_breaker", "thunder_dash" })
             Data.OwnedSkills.Add(id);
-        Data.Gold = 100_000;
-        Data.BuyUpgrade("skill_slots");
-        Data.BuyUpgrade("skill_slots");
+        while (Data.Level < 100)
+            Data.AddXp(GameConfig.XpToNextLevel(Data.Level));
         foreach (var id in new[] { "wind_slash", "stone_breaker", "thunder_dash" })
             Data.ToggleEquip(id);
-        Check(Data.EquippedSkills.Count == 4, "4 skills equipped after buying 2 skill slots");
+        Check(Data.EquippedSkills.Count == 4, "4 skills equipped at level 100");
 
         int killsBefore = Data.Kills;
         int goldBefore = Data.Gold;
@@ -69,8 +68,11 @@ public partial class GameplaySmoke : TestScene
         }
         Check(Data.Kills > killsBefore, $"monsters die and kills are recorded ({Data.Kills - killsBefore})");
         Check(Data.Gold > goldBefore, $"gold drops awarded ({Data.Gold - goldBefore})");
-        player.UseSkill(3);
-        Check(player.CooldownRatio(Data.EquippedSkills[3], 3f) > 0f, "4th skill slot fires (cooldown running)");
+        await Wait(3.5); // let cooldowns finish
+        world.Teleport(Zones.ArrivalPoint, toWilderness: true); // dashes may have carried us through the gate
+        await ProcessFrame();
+        player.RefillEnergy();
+        Check(player.UseSkill(3) && player.CooldownRatio(Data.EquippedSkills[3], 3f) > 0f, "4th skill slot fires (cooldown running)");
 
         // Force a guaranteed pet roll via pity to check pet records.
         Data.Pity["Rare"] = 24;
@@ -107,14 +109,23 @@ public partial class GameplaySmoke : TestScene
         bool speciesExist = Zones.All.SelectMany(z => z.Spawns).All(s => GameConfig.Species.Any(sp => sp.Name == s.Species));
         Check(speciesExist, "every zone spawns known species");
 
-        var rocky = Zones.ById("D");
-        player.GlobalPosition = rocky.Cells[0].GetCenter();
-        await PhysicsFrame();
-        Check(world.CurrentZone == rocky && world.Hud.AreaName == "Rocky Hills", "walking into Rocky Hills updates the zone and HUD");
+        var river = Zones.ById("C");
+        player.GlobalPosition = river.Cells[0].GetCenter();
+        await ProcessFrame();
+        await ProcessFrame();
+        Check(world.CurrentZone == river && world.Hud.AreaName == "River Area", "walking into the River Area updates the zone and HUD");
+
+        // Sealed regions push the player back out.
+        var highlands = Zones.ById("D");
+        player.GlobalPosition = highlands.Cells[0].GetCenter();
+        await ProcessFrame();
+        await ProcessFrame();
+        Check(!highlands.Contains(player.GlobalPosition), "sealed Broken Highlands bounces the player back");
 
         // Monsters near the campfire could hit the player, so clear them for a clean heal check.
         foreach (var monster in world.Monsters.GetChildren().OfType<Monster>().Where(m => m.GlobalPosition.DistanceTo(Zones.Campfires[0]) < 700f))
             monster.QueueFree();
+        await Wait(0.5); // let any dash invulnerability wear off
         player.TakeDamage(30f);
         float hurt = player.Hp;
         player.GlobalPosition = Zones.Campfires[0];

@@ -13,6 +13,7 @@ public partial class PerfProbe : Node
     {
         PlayerData.Instance.ResetProgress();
         PlayerData.Instance.ChooseStarter("wind_slash");
+        PlayerData.Instance.DebugUnlockWorld();
         DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
         var world = GD.Load<PackedScene>("res://scenes/main.tscn").Instantiate<World>();
         GetTree().Root.CallDeferred(Node.MethodName.AddChild, world);
@@ -22,7 +23,7 @@ public partial class PerfProbe : Node
         await Measure(world, "Lobby plaza", null, LobbyMap.Plaza);
         await Measure(world, "Starter Plains", Zones.ArrivalPoint, null);
         await Measure(world, "Forest", null, Zones.ById("B").Cells[0].GetCenter());
-        await Measure(world, "Rocky Hills", null, Zones.ById("D").Cells[0].GetCenter());
+        await Measure(world, "Broken Highlands", null, Zones.ById("D").Cells[0].GetCenter());
         await Measure(world, "Crystal Caves", null, Zones.ById("E").Cells[0].GetCenter());
         if (OS.GetCmdlineUserArgs().Contains("experiments"))
         {

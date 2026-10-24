@@ -3,9 +3,9 @@ using Godot;
 namespace RambleRumble;
 
 /// <summary>
-/// Lobby layout from the world map concept (the shops were cut), drawn as
+/// Hearthwood Village, laid out from the world map concept and drawn as
 /// placeholder shapes. Positions are shared with World, which builds the
-/// interaction zones on top.
+/// interaction zones and Garrick on top.
 /// </summary>
 public partial class LobbyMap : Node2D
 {
@@ -15,7 +15,7 @@ public partial class LobbyMap : Node2D
     public static readonly Vector2 SpawnPoint = new(0, 600);         // 1
     public static readonly Vector2 Plaza = new(0, 0);                // 2
     public const float PlazaRadius = 170f;
-    public static readonly Vector2 RaidBoard = new(-560, -330);      // 3
+    public static readonly Vector2 Guild = new(-560, -330);          // 3 (Rambler Guild, story only)
     public static readonly Rect2 TrainingGround = new(-830, 120, 340, 260); // 8
     public static readonly Vector2 Portal = new(-320, 470);          // 9
     public static readonly Rect2 PlayerPlot = new(360, 150, 470, 340); // 10
@@ -23,7 +23,9 @@ public partial class LobbyMap : Node2D
     public static readonly Vector2 UpgradeStation = new(560, -130);  // 11
     public static readonly Vector2 CosmeticArea = new(-600, -40);    // 12
     public static readonly Vector2 Leaderboard = new(560, -400);     // 13
-    public static readonly Vector2 EventArea = new(0, -520);         // 14
+    public static readonly Vector2 EventArea = new(0, -520);         // 14 (now the Quest Board)
+    /// <summary>Garrick waits at the edge of the Training Square.</summary>
+    public static readonly Vector2 QuestGiver = new(-440, 90);
     /// <summary>Where players land when coming back through the gate.</summary>
     public static readonly Vector2 ReturnPoint = new(-320, 350);
 
@@ -42,7 +44,7 @@ public partial class LobbyMap : Node2D
         DrawTrees();
 
         // Stone paths from the plaza out to every station: dark edging first, then the path.
-        var stations = new[] { SpawnPoint, RaidBoard, TrainingGround.GetCenter(), Portal,
+        var stations = new[] { SpawnPoint, Guild, TrainingGround.GetCenter(), Portal,
             PlayerPlot.GetCenter(), UpgradeStation, CosmeticArea, Leaderboard, EventArea };
         foreach (var target in stations)
             DrawLine(Plaza, target, StoneDark, 64f);
@@ -53,10 +55,10 @@ public partial class LobbyMap : Node2D
         DrawSpawn();
         DrawTraining();
         DrawPlot();
-        DrawBuilding(RaidBoard, new Color(0.45f, 0.28f, 0.16f), "RAID BOARD", "Phase 4");
-        DrawBuilding(CosmeticArea, new Color(0.55f, 0.30f, 0.60f), "COSMETICS & TITLES", "Phase 6");
-        DrawBuilding(Leaderboard, new Color(0.35f, 0.30f, 0.20f), "LEADERBOARD", "Phase 5");
-        DrawBuilding(EventArea, new Color(0.25f, 0.45f, 0.40f), "EVENT AREA", "Phase 3");
+        DrawBuilding(Guild, new Color(0.45f, 0.28f, 0.16f), "RAMBLER GUILD", "Chapter 5");
+        DrawBuilding(CosmeticArea, new Color(0.55f, 0.30f, 0.60f), "COSMETICS & TITLES", "later");
+        DrawBuilding(Leaderboard, new Color(0.35f, 0.30f, 0.20f), "MERCHANT", "Chapter 3");
+        DrawBuilding(EventArea, new Color(0.25f, 0.45f, 0.40f), "QUEST BOARD", "story");
         DrawUpgradeStation();
         MapArt.Portal(this, Portal, "WILDERNESS");
     }
@@ -86,7 +88,7 @@ public partial class LobbyMap : Node2D
             new Color(0.55f, 0.85f, 1f));
         DrawColoredPolygon(new[] { Plaza + new Vector2(0, -70), Plaza + new Vector2(22, -10), Plaza + new Vector2(0, -2) },
             new Color(0.80f, 0.95f, 1f));
-        Label(Plaza + new Vector2(0, PlazaRadius + 26), "CENTRAL PLAZA", 18);
+        Label(Plaza + new Vector2(0, PlazaRadius + 26), "HEARTHWOOD VILLAGE", 18);
     }
 
     private void DrawSpawn()
@@ -109,7 +111,7 @@ public partial class LobbyMap : Node2D
             DrawRect(new Rect2(dummy.X - 26, dummy.Y + 12, 52, 8), Wood);
             DrawCircle(dummy, 16, new Color(0.85f, 0.75f, 0.55f));
         }
-        Label(rect.Position + new Vector2(rect.Size.X / 2, -14), "TRAINING GROUND", 20);
+        Label(rect.Position + new Vector2(rect.Size.X / 2, -14), "TRAINING SQUARE", 20);
     }
 
     private void DrawPlot()
@@ -133,7 +135,7 @@ public partial class LobbyMap : Node2D
         DrawColoredPolygon(new[] { house.Position + new Vector2(-12, 0), house.Position + new Vector2(house.Size.X / 2, -50),
             house.Position + new Vector2(house.Size.X + 12, 0) }, new Color(0.25f, 0.40f, 0.75f));
         DrawRect(new Rect2(house.Position.X + 40, house.End.Y - 34, 22, 34), Wood);
-        Label(plot.Position + new Vector2(plot.Size.X / 2, -14), "YOUR PLOT  •  PET FENCE", 20);
+        Label(plot.Position + new Vector2(plot.Size.X / 2, -14), "ABANDONED RANCH  •  ECHO FENCE", 20);
     }
 
     private void DrawBuilding(Vector2 at, Color walls, string name, string phase)

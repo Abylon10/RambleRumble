@@ -98,10 +98,12 @@ public partial class EconomyTest : TestScene
         Check(Data.NextUpgradeCost("fence_slots") == 200, "first fence slot costs 200");
         Data.BuyUpgrade("fence_slots");
         Check(Data.FenceSlots == 4 && Data.NextUpgradeCost("fence_slots") == 340, "fence slots 4, next costs 340");
-        Data.BuyUpgrade("skill_slots");
-        Data.BuyUpgrade("skill_slots");
-        Check(Data.SkillSlots == 4 && Data.UpgradeMaxed("skill_slots"), "skill slots max at 4");
-        Check(!Data.BuyUpgrade("skill_slots"), "can't buy past max");
+        Check(Data.NextUpgradeCost("energy_well") == 800, "first Energy Well level costs 800");
+        Data.BuyUpgrade("energy_well");
+        Check(Data.MaxEnergy == 110f, $"Energy Well adds 10 max energy (got {Data.MaxEnergy})");
+        for (int i = 0; i < 4; i++)
+            Data.BuyUpgrade("energy_well");
+        Check(Data.UpgradeMaxed("energy_well") && !Data.BuyUpgrade("energy_well"), "can't buy past max");
         Data.BuyUpgrade("training_ground");
         int xpBefore = Data.TrainingXp;
         Data.Train(4f);
