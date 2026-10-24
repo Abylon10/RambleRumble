@@ -33,7 +33,7 @@ There's no online play, no multiplayer and no raids. Saves stay on the device.
 | Chapter 3 onward (Kael and the Rambler Guild, the Worldheart...) | next |
 | Dodge, more lineages' skills, more class tiers | later |
 
-Monsters and Echoes are pixel art generated in code (`scripts/MonsterArt.cs`): 34 species, 17 per chapter, including elites and the two bosses. Tiles, scenery and effects are still simple shapes.
+Monsters and Echoes use the sprites from the roster sheets (`art/monsters/`), 34 species including elites and the two bosses. Every species also has a code-drawn fallback in `scripts/MonsterArt.cs`. Tiles, scenery and effects are still simple shapes.
 
 ## Run it
 
@@ -103,6 +103,8 @@ Adding a skill means adding one line to `SkillCatalog` with an existing archetyp
 - `art/portraits/`
 
 Skills without their own icon use their lineage starter's icon.
+
+`tools/cut_monsters.py` cuts the monsters out of `art/source/monster_bestiary.png` and `monster_catalog.png` into `art/monsters/<name>.png` (background removed, shrunk to native pixel size). Run it with `py -3 tools/cut_monsters.py` (needs Pillow and NumPy). A species without a file there falls back to its code-drawn sprite.
 To use proper sprite sheets later, replace the strips and update `manifest.json`. No code changes are needed.
 
 ## Exporting to Android

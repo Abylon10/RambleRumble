@@ -47,11 +47,44 @@ public static class MonsterArt
         return canvas.ToImage();
     }
 
+    // --- Sprites cut from the roster sheets (tools/cut_monsters.py) --------------------
+
+    private static readonly Dictionary<string, Texture2D?> SheetCache = new();
+
+    /// <summary>Sheet sprites that face right; the rest face left (or the viewer).</summary>
+    private static readonly HashSet<string> SheetFacesRight = new() { "Leafy", "Sproutling", "Forest Rabbit" };
+
+    /// <summary>The monster as drawn on the roster sheet, or null if it has none (then the code-drawn sprite is used).</summary>
+    public static Texture2D? SheetSprite(string species)
+    {
+        if (SheetCache.TryGetValue(species, out var cached))
+            return cached;
+        string path = $"res://art/monsters/{species.ToLower().Replace(' ', '_')}.png";
+        var texture = ResourceLoader.Exists(path) ? GD.Load<Texture2D>(path) : null;
+        SheetCache[species] = texture;
+        return texture;
+    }
+
     /// <summary>Draws a sprite standing on <paramref name="feet"/>, about <paramref name="height"/> pixels tall on screen.</summary>
     public static void Draw(CanvasItem canvas, string species, int frame, Vector2 feet, float height, bool faceLeft, Color modulate)
     {
-        var texture = Frame(species, frame);
-        var size = texture.GetSize() * (height / texture.GetHeight());
+        var texture = SheetSprite(species);
+        Vector2 size;
+        if (texture != null)
+        {
+            // Same texel size as the code-drawn canvas, so long beasts stay long and slimes stay small,
+            // but never much taller than asked. Frame 1 squashes a little for a bouncy idle/walk.
+            float texel = height / (IsBossSpecies(species) ? BossSize : Size);
+            size = texture.GetSize() * Mathf.Min(texel, height * 1.15f / texture.GetHeight());
+            if ((frame & 1) == 1)
+                size *= new Vector2(1.05f, 0.94f);
+            faceLeft ^= !SheetFacesRight.Contains(species);
+        }
+        else
+        {
+            texture = Frame(species, frame);
+            size = texture.GetSize() * (height / texture.GetHeight());
+        }
         var rect = new Rect2(feet - new Vector2(size.X / 2f, size.Y), size);
         if (faceLeft)
             rect = new Rect2(rect.Position + new Vector2(size.X, 0), new Vector2(-size.X, size.Y));
