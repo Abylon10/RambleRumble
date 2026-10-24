@@ -58,6 +58,14 @@ public partial class PlayerData : Node
     public int QuestProgress { get; private set; }
     /// <summary>Highest story chapter fully completed (-1 = none, 0 = Prologue).</summary>
     public int CompletedChapter { get; private set; } = -1;
+    /// <summary>Stage id -> best stars (1–3). Present means cleared.</summary>
+    public Dictionary<string, int> StageStars { get; } = new();
+    /// <summary>Stage id -> chests opened there (bit 1 = treasure, bit 2 = puzzle chest).</summary>
+    public Dictionary<string, int> StageChests { get; } = new();
+    /// <summary>Material name -> count.</summary>
+    public Dictionary<string, int> Materials { get; } = new();
+    /// <summary>Item id -> count (potions, tonics).</summary>
+    public Dictionary<string, int> Items { get; } = new();
     public int Gold { get; set; }
     public int TrainingLevel { get; private set; } = 1;
     public int TrainingXp { get; private set; }
@@ -552,10 +560,142 @@ public partial class PlayerData : Node
         if (drop.SkillBox)
             (drop.SkillLearned, drop.SkillIsNew) = OpenSkillBox();
         drop.Xp = GameConfig.KillXp(GameConfig.SpeciesOf(speciesId));
+        var species = GameConfig.SpeciesOf(speciesId);
+        bool boss = species.Name is "Slime King" or "Crimson Fang" || species.Rarity == "Mythic";
+        if (boss || Rng.Randf() < GameConfig.MaterialDropChance)
+        {
+            drop.Material = GameConfig.MaterialFrom(speciesId);
+            drop.MaterialCount = boss ? 3 : 1;
+            AddMaterial(drop.Material, drop.MaterialCount);
+        }
         QuestEvent(QuestGoal.Kill, speciesId);
         AddXp(drop.Xp);
         Commit();
         return drop;
+    }
+
+    // --- Stages ---------------------------------------------------------------
+
+    public bool StageCleared(string stageId) => StageStars.ContainsKey(stageId);
+
+    /// <summary>A chapter map opens once the previous chapter's last stage is cleared.</summary>
+    public bool IsChapterUnlocked(int chapter) =>
+        HasStarter && (chapter == 1 || StageCleared($"{chapter - 1}-10"));
+
+    /// <summary>Stages open in order along each chapter's road.</summary>
+    public bool IsStageUnlocked(StageDef stage) =>
+        IsChapterUnlocked(stage.Chapter) && (stage.Number == 1 || StageCleared($"{stage.Chapter}-{stage.Number - 1}"));
+
+    public int HighestUnlockedChapter() =>
+        StageCatalog.Chapters.Where(c => IsChapterUnlocked(c.Number)).Select(c => c.Number).DefaultIfEmpty(1).Max();
+
+    /// <summary>What a stage clear paid out.</summary>
+    public sealed record StageReward(int Gold, int Xp, bool FirstClear, int Stars, string SkillLearned, bool SkillIsNew);
+
+    /// <summary>Records a clear: first clears pay in full (plus any skill box), repeats pay half.</summary>
+    public StageReward CompleteStage(StageDef stage, int stars)
+    {
+        bool first = !StageCleared(stage.Id);
+        int gold = first ? stage.Gold : stage.Gold / 2;
+        int xp = first ? stage.Xp : stage.Xp / 2;
+        StageStars[stage.Id] = Math.Max(stars, StageStars.GetValueOrDefault(stage.Id));
+        Gold += gold;
+        string skill = "";
+        bool isNew = false;
+        if (first && stage.SkillBoxFirstClear)
+            (skill, isNew) = OpenSkillBox();
+        AddXp(xp);
+        Commit();
+        return new StageReward(gold, xp, first, stars, skill, isNew);
+    }
+
+    // --- Treasure, materials and the Market -------------------------------------
+
+    public const int TreasureBit = 1;
+    public const int PuzzleBit = 2;
+
+    public bool ChestOpened(string stageId, int bit) => (StageChests.GetValueOrDefault(stageId) & bit) != 0;
+
+    /// <summary>
+    /// Opens a stage chest the first time (later visits find it empty). Returns
+    /// a description of the loot, or "" if it was already opened.
+    /// Treasure: half the stage's gold and two chapter materials. Puzzle chest:
+    /// the stage's gold, three chapter materials and a Crystal Shard.
+    /// </summary>
+    public string OpenStageChest(StageDef stage, bool puzzle)
+    {
+        int bit = puzzle ? PuzzleBit : TreasureBit;
+        if (ChestOpened(stage.Id, bit))
+            return "";
+        StageChests[stage.Id] = StageChests.GetValueOrDefault(stage.Id) | bit;
+        var mats = GameConfig.ChapterMaterials(stage.Chapter);
+        int gold = puzzle ? stage.Gold : stage.Gold / 2;
+        Gold += gold;
+        var loot = new List<string> { $"{gold} gold" };
+        int count = puzzle ? 3 : 2;
+        for (int n = 0; n < count; n++)
+        {
+            string mat = mats[Rng.RandiRange(0, mats.Length - 1)];
+            AddMaterial(mat, 1);
+            loot.Add(mat);
+        }
+        if (puzzle)
+        {
+            AddMaterial("Crystal Shard", 1);
+            loot.Add("Crystal Shard");
+        }
+        Commit();
+        return string.Join(", ", loot.GroupBy(l => l).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key));
+    }
+
+    public void AddMaterial(string name, int count) => Materials[name] = Materials.GetValueOrDefault(name) + count;
+
+    /// <summary>Sells up to <paramref name="count"/> of a material; returns the gold received.</summary>
+    public int SellMaterial(string name, int count)
+    {
+        int sold = Math.Min(count, Materials.GetValueOrDefault(name));
+        if (sold <= 0)
+            return 0;
+        Materials[name] -= sold;
+        if (Materials[name] == 0)
+            Materials.Remove(name);
+        int gold = sold * GameConfig.Material(name).SellPrice;
+        Gold += gold;
+        Commit();
+        return gold;
+    }
+
+    public int ItemCount(string id) => Items.GetValueOrDefault(id);
+
+    /// <summary>Buys one item if affordable and under the carry limit. Skill boxes open at once.</summary>
+    public bool BuyItem(string id)
+    {
+        var item = GameConfig.Item(id);
+        if (Gold < item.Price || ItemCount(id) >= item.Max)
+            return false;
+        Gold -= item.Price;
+        if (id == "skill_box")
+        {
+            var (skill, isNew) = OpenSkillBox();
+            Notify?.Invoke(isNew ? $"Skill box: learned {SkillCatalog.Get(skill).Name}!" : $"Skill box: {SkillCatalog.Get(skill).Name} mastery +{GameConfig.MasteryFromDuplicateBox}",
+                SkillCatalog.Get(skill).Color);
+        }
+        else
+        {
+            Items[id] = ItemCount(id) + 1;
+        }
+        Commit();
+        return true;
+    }
+
+    /// <summary>Uses up one item; returns false if none are left.</summary>
+    public bool ConsumeItem(string id)
+    {
+        if (ItemCount(id) <= 0)
+            return false;
+        Items[id]--;
+        Commit();
+        return true;
     }
 
     // --- Story quests ---------------------------------------------------------
@@ -603,7 +743,15 @@ public partial class PlayerData : Node
         return quest;
     }
 
-    /// <summary>Dev/test shortcut: marks the written story complete and raises the level, opening every region.</summary>
+    /// <summary>Dev/test shortcut: clears every stage of the chapter maps with the given stars.</summary>
+    public void DebugClearStages(int stars = 3)
+    {
+        foreach (var stage in StageCatalog.Chapters.SelectMany(c => c.Stages))
+            StageStars[stage.Id] = stars;
+        Commit();
+    }
+
+    /// <summary>Dev/test shortcut: marks the written story complete and raises the level.</summary>
     public void DebugUnlockWorld(int level = 60)
     {
         QuestIndex = Quests.All.Length;
@@ -639,6 +787,7 @@ public partial class PlayerData : Node
             QuestGoal.TrainingLevel => TrainingLevel,
             QuestGoal.FencePet => FencedPets().Count,
             QuestGoal.BattlePet => BattlePet != null ? 1 : 0,
+            QuestGoal.ClearStage => StageCleared(quest.Target) ? 1 : 0,
             _ => QuestProgress,
         };
         QuestProgress = Math.Min(value, quest.Count);
@@ -677,6 +826,10 @@ public partial class PlayerData : Node
         public bool QuestAccepted { get; set; }
         public int QuestProgress { get; set; }
         public int CompletedChapter { get; set; } = -1;
+        public Dictionary<string, int> StageStars { get; set; } = new();
+        public Dictionary<string, int> StageChests { get; set; } = new();
+        public Dictionary<string, int> Materials { get; set; } = new();
+        public Dictionary<string, int> Items { get; set; } = new();
         public int Gold { get; set; }
         public int TrainingLevel { get; set; } = 1;
         public int TrainingXp { get; set; }
@@ -714,6 +867,10 @@ public partial class PlayerData : Node
             QuestAccepted = QuestAccepted,
             QuestProgress = QuestProgress,
             CompletedChapter = CompletedChapter,
+            StageStars = StageStars,
+            StageChests = StageChests,
+            Materials = Materials,
+            Items = Items,
             Gold = Gold,
             TrainingLevel = TrainingLevel,
             TrainingXp = TrainingXp,
@@ -765,6 +922,10 @@ public partial class PlayerData : Node
         ReplaceAll(Upgrades, data.Upgrades);
         ReplaceAll(StarShards, data.StarShards);
         ReplaceAll(Mastery, data.Mastery);
+        ReplaceAll(StageStars, data.StageStars);
+        ReplaceAll(StageChests, data.StageChests);
+        ReplaceAll(Materials, data.Materials);
+        ReplaceAll(Items, data.Items);
         Level = Math.Clamp(data.Level, 1, GameConfig.MaxLevel);
         Xp = data.Xp;
         ClassTier = Math.Clamp(data.ClassTier, 1, 5);
@@ -821,6 +982,10 @@ public partial class PlayerData : Node
         QuestAccepted = false;
         QuestProgress = 0;
         CompletedChapter = -1;
+        StageStars.Clear();
+        StageChests.Clear();
+        Materials.Clear();
+        Items.Clear();
         Gold = 0;
         TrainingLevel = 1;
         TrainingXp = 0;

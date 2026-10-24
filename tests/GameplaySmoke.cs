@@ -5,8 +5,9 @@ using Godot;
 namespace RambleRumble.Tests;
 
 /// <summary>
-/// Plays the real main scene headless: picks a starter, trains, travels to the
-/// Wilderness, kills monsters with every skill, and checks rewards persist.
+/// Plays the real game through its pages: the village (training, Upgrade
+/// Station, Market), the gate to the chapter map, a stage (combat, treasure
+/// chest, puzzle chest, goal flag), unlocking, defeat, potions and chapter 2.
 /// Run: godot --headless --path . res://tests/GameplaySmoke.tscn -- --test
 /// </summary>
 public partial class GameplaySmoke : TestScene
@@ -14,132 +15,141 @@ public partial class GameplaySmoke : TestScene
     public override async void _Ready()
     {
         Data.ResetProgress();
-        var world = GD.Load<PackedScene>("res://scenes/main.tscn").Instantiate<World>();
-        GetTree().Root.CallDeferred(Node.MethodName.AddChild, world);
-        for (int i = 0; i < 3; i++)
-            await PhysicsFrame();
-        var player = world.Player;
+        var village = await LoadGame();
+        await CheckVillage(village);
+        var map = await Go<ChapterMapPage>(village.OpenGate);
+        Check(map.Chapter == 1 && map.Selected?.Id == "1-1", "the gate opens Chapter 1 with stage 1-1 selected");
+        Check(!Data.IsStageUnlocked(StageCatalog.Get("1-2")), "stage 1-2 starts locked");
 
+        var stage = await Go<StagePage>(() => map.StartSelected());
+        await CheckStage(stage);
+
+        map = await Go<ChapterMapPage>(() => Game.Instance.ShowChapterMap(1));
+        map.Select(StageCatalog.Get("1-2"));
+        stage = await Go<StagePage>(() => map.StartSelected());
+        await CheckDefeatAndPotions(stage);
+
+        await CheckChapterTwo();
+        Finish();
+    }
+
+    private async System.Threading.Tasks.Task CheckVillage(World village)
+    {
         foreach (var gender in CharacterArt.Genders)
         {
             var frames = CharacterArt.FramesFor(gender);
             Check(new[] { "idle", "walk", "run", "attack", "hurt", "victory" }.All(a => frames.HasAnimation(a) && frames.GetFrameCount(a) > 0),
                 $"{gender} sprite animations all load");
         }
-        Data.SetGender("female");
-        await PhysicsFrame();
-        Check(Data.Gender == "female", "gender switches to female");
-
         Data.ChooseStarter("flame_fist");
+        village.Hud.StarterPanel.Visible = false;
         Check(Data.HasStarter, "starter skill chosen");
 
         int levelBefore = Data.TrainingLevel;
         for (int i = 0; i < 30; i++)
-            world.OnTrainPressed();
+            village.OnTrainPressed();
         Check(Data.TrainingLevel > levelBefore, $"training raises level (now {Data.TrainingLevel})");
 
-        world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-        await PhysicsFrame();
-        Check(world.InWilderness && !player.InSafeZone, "portal moves player into the Wilderness");
-        Check(world.CurrentZone?.Id == "A", "players arrive in Starter Plains");
-
-        // Learn every starter and reach level 100 (4 skill slots) so four buttons are used.
-        foreach (var id in new[] { "wind_slash", "stone_breaker", "thunder_dash" })
-            Data.OwnedSkills.Add(id);
-        while (Data.Level < 100)
-            Data.AddXp(GameConfig.XpToNextLevel(Data.Level));
-        foreach (var id in new[] { "wind_slash", "stone_breaker", "thunder_dash" })
-            Data.ToggleEquip(id);
-        Check(Data.EquippedSkills.Count == 4, "4 skills equipped at level 100");
-
-        int killsBefore = Data.Kills;
-        int goldBefore = Data.Gold;
-        for (int wave = 0; wave < 8; wave++)
-        {
-            for (int i = 0; i < 3; i++)
-                world.SpawnMonster("Slime", player.GlobalPosition + new Vector2(50, 0).Rotated(i * 2f));
-            for (int t = 0; t < 120; t++)
-            {
-                player.BasicAttack();
-                for (int slot = 0; slot < 4; slot++)
-                    player.UseSkill(slot);
-                await PhysicsFrame();
-            }
-        }
-        Check(Data.Kills > killsBefore, $"monsters die and kills are recorded ({Data.Kills - killsBefore})");
-        Check(Data.Gold > goldBefore, $"gold drops awarded ({Data.Gold - goldBefore})");
-        await Wait(3.5); // let cooldowns finish
-        world.Teleport(Zones.ArrivalPoint, toWilderness: true); // dashes may have carried us through the gate
-        await ProcessFrame();
-        player.RefillEnergy();
-        Check(player.UseSkill(3) && player.CooldownRatio(Data.EquippedSkills[3], 3f) > 0f, "4th skill slot fires (cooldown running)");
-
-        // Force a guaranteed pet roll via pity to check pet records.
-        Data.Pity["Rare"] = 24;
-        Data.RecordKill("Goblin");
-        Check(Data.Pets.Any(p => p.Species == "Goblin"), "pity guarantees a Rare pet at 25 kills");
-
-        int savedGold = Data.Gold;
-        int savedPets = Data.Pets.Count;
-        Data.SaveGame();
-        Data.LoadGame();
-        Check(Data.Gold == savedGold && Data.Pets.Count == savedPets, "save/load round-trips gold and pets");
-
-        await CheckWorld(world, player);
-
-        player.TakeDamage(99_999f);
+        village.Player.GlobalPosition = LobbyMap.UpgradeStation;
         for (int i = 0; i < 3; i++)
             await PhysicsFrame();
-        Check(!world.InWilderness, "defeat sends player back to the Lobby");
+        Check(village.Hud.UpgradesPanel.Visible, "Upgrade Station opens the Upgrades panel");
 
-        // Walking into the Upgrade Station opens the Upgrades panel.
-        world.Hud.StarterPanel.Visible = false;
-        player.GlobalPosition = LobbyMap.UpgradeStation;
+        village.Player.GlobalPosition = LobbyMap.Market;
         for (int i = 0; i < 3; i++)
             await PhysicsFrame();
-        Check(world.Hud.UpgradesPanel.Visible, "Upgrade Station opens the Upgrades panel");
-
-        Finish();
+        Check(village.Hud.MarketPanel.Visible, "walking into the Market opens it");
+        Data.Gold = 200;
+        Check(Data.BuyItem("health_potion") && Data.ItemCount("health_potion") == 1 && Data.Gold == 160, "buy a Health Potion for 40 gold");
+        Data.AddMaterial("Slime Gel", 5);
+        Check(Data.SellMaterial("Slime Gel", int.MaxValue) == 20 && !Data.Materials.ContainsKey("Slime Gel"), "sell 5 Slime Gel for 20 gold");
+        village.Player.GlobalPosition = LobbyMap.SpawnPoint;
     }
 
-    private async System.Threading.Tasks.Task CheckWorld(World world, Player player)
+    private async System.Threading.Tasks.Task CheckStage(StagePage stage)
     {
-        bool cellsMatch = Zones.All.All(z => z.Cells.All(c => Zones.At(c.GetCenter()) == z));
-        Check(cellsMatch && Zones.All.Length == 7, "7 zones, every cell maps back to its zone");
-        bool speciesExist = Zones.All.SelectMany(z => z.Spawns).All(s => GameConfig.Species.Any(sp => sp.Name == s.Species));
-        Check(speciesExist, "every zone spawns known species");
+        var def = stage.Stage;
+        Check(stage.Map.W == StageMapBuilder.Width && stage.Map.H == StageMapBuilder.Length, "stage is a long strip with a road");
+        int expected = def.Waves.Sum(w => w.Enemies.Sum(e => e.Count) + (w.Leader != "" ? 1 : 0)) + (def.IsBoss ? 1 : 0);
+        Check(stage.EnemiesLeft == expected, $"enemy groups wait along the road ({stage.EnemiesLeft}/{expected})");
+        Check(stage.Map.Road.First() == stage.Map.Start && stage.Map.Road.Last() == stage.Map.Goal, "road runs from start to goal flag");
+        Check(stage.Map.IsOpen(stage.Map.TreasureChest.X, stage.Map.TreasureChest.Y)
+              && stage.Map.PuzzleTiles.All(t => stage.Map.IsOpen(t.X, t.Y)), "treasure and puzzle spots are reachable ground");
 
-        var river = Zones.ById("C");
-        player.GlobalPosition = river.Cells[0].GetCenter();
+        // Reaching the flag early doesn't count.
+        stage.Player.GlobalPosition = stage.Map.GoalPoint;
         await ProcessFrame();
-        await ProcessFrame();
-        Check(world.CurrentZone == river && world.Hud.AreaName == "River Area", "walking into the River Area updates the zone and HUD");
+        Check(stage.Outcome == StageOutcome.Playing, "the flag needs every enemy defeated first");
 
-        // Sealed regions push the player back out.
-        var highlands = Zones.ById("D");
-        player.GlobalPosition = highlands.Cells[0].GetCenter();
-        await ProcessFrame();
-        await ProcessFrame();
-        Check(!highlands.Contains(player.GlobalPosition), "sealed Broken Highlands bounces the player back");
+        // Real combat against the first group.
+        var player = stage.Player;
+        var first = stage.AliveMonsters.OrderBy(m => m.GlobalPosition.DistanceTo(stage.Map.StartPoint)).First();
+        player.GlobalPosition = first.GlobalPosition + new Vector2(30, 10);
+        int kills = Data.Kills;
+        for (int t = 0; t < 60 * 8 && Data.Kills == kills; t++)
+        {
+            player.HealFull();
+            player.BasicAttack();
+            player.UseSkill(0);
+            await PhysicsFrame();
+        }
+        Check(Data.Kills > kills, "combat kills monsters on the stage");
 
-        // Monsters near the campfire could hit the player, so clear them for a clean heal check.
-        foreach (var monster in world.Monsters.GetChildren().OfType<Monster>().Where(m => m.GlobalPosition.DistanceTo(Zones.Campfires[0]) < 700f))
-            monster.QueueFree();
-        await Wait(0.5); // let any dash invulnerability wear off
-        player.TakeDamage(30f);
+        // Treasure chest: open once, loot materials.
+        int mats = Data.Materials.Values.Sum();
+        stage.TreasureChest.TryOpen();
+        Check(stage.TreasureChest.IsOpen && Data.ChestOpened(def.Id, PlayerData.TreasureBit) && Data.Materials.Values.Sum() >= mats + 2,
+            "treasure chest opens and gives materials");
+
+        // Puzzle chest stays chained until the puzzle (Rune Plates on stage 1) is solved.
+        stage.PuzzleChest.TryOpen();
+        Check(!stage.PuzzleChest.IsOpen && stage.PuzzleChest.Locked, "puzzle chest is chained while unsolved");
+        Check(def.Puzzle == PuzzleKind.RunePlates, "stage 1 uses the Rune Plates puzzle");
+        foreach (int piece in stage.Puzzle.Solution())
+            stage.Puzzle.Step(piece);
+        Check(stage.Puzzle.IsSolved && !stage.PuzzleChest.Locked, "solving the plates unlocks the chest");
+        stage.PuzzleChest.TryOpen();
+        Check(Data.ChestOpened(def.Id, PlayerData.PuzzleBit) && Data.Materials.GetValueOrDefault("Crystal Shard") >= 1,
+            "puzzle chest gives a Crystal Shard");
+
+        foreach (var monster in stage.AliveMonsters)
+            monster.TakeDamage(1_000_000f, showNumber: false);
+        await ProcessFrame();
+        player.HealFull();
+        player.GlobalPosition = stage.Map.GoalPoint;
+        for (int i = 0; i < 3; i++)
+            await ProcessFrame();
+        Check(stage.Outcome == StageOutcome.Victory && Data.StageStars.GetValueOrDefault(def.Id) == 3, "reaching the flag clears the stage with 3 stars");
+        Check(stage.Reward is { FirstClear: true } && stage.Reward.Gold == def.Gold, "first clear pays full rewards");
+        Check(Data.IsStageUnlocked(StageCatalog.Get("1-2")), "clearing 1-1 unlocks 1-2");
+        Check(Data.OpenStageChest(def, puzzle: false) == "", "a looted chest stays empty on replays");
+    }
+
+    private async System.Threading.Tasks.Task CheckDefeatAndPotions(StagePage stage)
+    {
+        var player = stage.Player;
+        await Wait(0.3);
+        player.TakeDamage(player.Hp * 0.8f);
         float hurt = player.Hp;
-        player.GlobalPosition = Zones.Campfires[0];
-        for (int i = 0; i < 30; i++)
-            await PhysicsFrame();
-        Check(player.Resting && player.Hp > hurt, $"campfire heals ({hurt:0} -> {player.Hp:0} HP)");
+        stage.UsePotion();
+        Check(player.Hp > hurt && Data.ItemCount("health_potion") == 0, $"a potion heals ({hurt:0} -> {player.Hp:0} HP)");
 
-        // Let the spawners run: zones respawn every 3-6 s (the Ruins boss every 45 s).
-        player.GlobalPosition = Zones.ArrivalPoint;
-        for (int i = 0; i < 60 * 7; i++)
-            await PhysicsFrame();
-        var perZone = world.Monsters.GetChildren().OfType<Monster>().GroupBy(m => m.ZoneId).ToDictionary(g => g.Key, g => g.Count());
-        Check(Zones.All.All(z => perZone.GetValueOrDefault(z.Id) > 0),
-            "every zone spawns monsters (" + string.Join(", ", Zones.All.Select(z => $"{z.Id}:{perZone.GetValueOrDefault(z.Id)}")) + ")");
-        Check(Zones.All.All(z => perZone.GetValueOrDefault(z.Id) <= z.Cap), "no zone goes over its cap");
+        player.TakeDamage(1_000_000f);
+        for (int i = 0; i < 3; i++)
+            await ProcessFrame();
+        Check(stage.Outcome == StageOutcome.Defeat && !Data.StageCleared("1-2"), "falling in battle ends the stage as a defeat");
+    }
+
+    private async System.Threading.Tasks.Task CheckChapterTwo()
+    {
+        Check(!Data.IsChapterUnlocked(2), "Chapter 2 starts locked");
+        Data.DebugClearStages();
+        Check(Data.IsChapterUnlocked(2), "clearing 1-10 opens Chapter 2");
+        var map = await Go<ChapterMapPage>(() => Game.Instance.ShowChapterMap(2));
+        Check(map.Def.Region == "Verdant Forest", "Chapter 2 map is the Verdant Forest");
+        map.Select(StageCatalog.Get("2-10"));
+        var stage = await Go<StagePage>(() => map.StartSelected());
+        Check(stage.AliveMonsters.Any(m => m.IsBoss && m.SpeciesId == "Crimson Fang"), "stage 2-10 has the Crimson Fang boss");
+        Check(stage.Stage.Puzzle == PuzzleKind.Braziers, "stage 10 uses the Braziers puzzle");
     }
 }

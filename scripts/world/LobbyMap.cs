@@ -22,7 +22,7 @@ public partial class LobbyMap : Node2D
     public static readonly Rect2 FenceRect = new(390, 250, 300, 210);
     public static readonly Vector2 UpgradeStation = new(560, -130);  // 11
     public static readonly Vector2 CosmeticArea = new(-600, -40);    // 12
-    public static readonly Vector2 Leaderboard = new(560, -400);     // 13
+    public static readonly Vector2 Market = new(560, -400);          // the Market (buy/sell)
     public static readonly Vector2 EventArea = new(0, -520);         // 14 (now the Quest Board)
     /// <summary>Garrick waits at the edge of the Training Square.</summary>
     public static readonly Vector2 QuestGiver = new(-440, 90);
@@ -45,7 +45,7 @@ public partial class LobbyMap : Node2D
 
         // Stone paths from the plaza out to every station: dark edging first, then the path.
         var stations = new[] { SpawnPoint, Guild, TrainingGround.GetCenter(), Portal,
-            PlayerPlot.GetCenter(), UpgradeStation, CosmeticArea, Leaderboard, EventArea };
+            PlayerPlot.GetCenter(), UpgradeStation, CosmeticArea, Market, EventArea };
         foreach (var target in stations)
             DrawLine(Plaza, target, StoneDark, 64f);
         foreach (var target in stations)
@@ -57,10 +57,10 @@ public partial class LobbyMap : Node2D
         DrawPlot();
         DrawBuilding(Guild, new Color(0.45f, 0.28f, 0.16f), "RAMBLER GUILD", "Chapter 5");
         DrawBuilding(CosmeticArea, new Color(0.55f, 0.30f, 0.60f), "COSMETICS & TITLES", "later");
-        DrawBuilding(Leaderboard, new Color(0.35f, 0.30f, 0.20f), "MERCHANT", "Chapter 3");
+        DrawBuilding(Market, new Color(0.30f, 0.45f, 0.65f), "MARKET", "buy & sell");
         DrawBuilding(EventArea, new Color(0.25f, 0.45f, 0.40f), "QUEST BOARD", "story");
         DrawUpgradeStation();
-        MapArt.Portal(this, Portal, "WILDERNESS");
+        MapArt.Portal(this, Portal, "GATE TO WILDERNESS");
     }
 
     private void DrawTrees()

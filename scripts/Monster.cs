@@ -4,8 +4,9 @@ using Godot;
 namespace RambleRumble;
 
 /// <summary>
-/// A wilderness monster: wanders near its spawn point, chases the player inside
-/// its aggro range, and gives up once pulled too far from home.
+/// A monster. On stage battlefields it always hunts the player
+/// (<see cref="AlwaysAggro"/>); otherwise it wanders near its spawn point,
+/// chases inside its aggro range and gives up when pulled too far from home.
 /// </summary>
 public partial class Monster : CharacterBody2D
 {
@@ -19,8 +20,11 @@ public partial class Monster : CharacterBody2D
     private const float SleepRange = 1400f;
 
     public string SpeciesId { get; private set; } = "Slime";
-    /// <summary>Id of the Wilderness zone that spawned it ("" if spawned directly).</summary>
+    /// <summary>Tag of whatever spawned it, e.g. a stage wave ("" if none).</summary>
     public string ZoneId { get; private set; } = "";
+    /// <summary>Hunts the player anywhere (stage battlefields), ignoring aggro range and leash.</summary>
+    public bool AlwaysAggro { get; set; }
+    public bool IsBoss { get; private set; }
     public float Radius { get; private set; } = 16f;
     /// <summary>Red-streaked by corrupted Rumble (story swarms).</summary>
     public bool Corrupted { get; set; }
@@ -30,6 +34,7 @@ public partial class Monster : CharacterBody2D
     private GameConfig.SpeciesInfo _species = GameConfig.Species[0];
     private float _hp = 1f;
     private float _maxHp = 1f;
+    private float _damage = 1f;
     private Vector2 _home;
     private Player _target = null!;
 
@@ -51,6 +56,7 @@ public partial class Monster : CharacterBody2D
         ZoneId = zoneId;
         _species = GameConfig.SpeciesOf(speciesId);
         _maxHp = _hp = _species.Hp;
+        _damage = _species.Damage;
         Radius = _species.Radius;
         Position = _home = position;
         _target = target;
@@ -64,18 +70,34 @@ public partial class Monster : CharacterBody2D
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Radius } });
         if (_elite)
             AddChild(MakeBossLabel(_eliteTitle));
-        if (_species.Rarity == "Mythic")
+        if (_species.Rarity == "Mythic" && !_elite)
             AddChild(MakeBossLabel($"BOSS: {_species.Name.ToUpper()}"));
     }
 
-    /// <summary>Turns this monster into a tougher, bigger, labelled leader (call before adding to the tree).</summary>
-    public void MakeElite(string title)
+    /// <summary>Stage difficulty: multiplies HP and damage (call before adding to the tree).</summary>
+    public void ApplyScale(float scale)
     {
-        _maxHp = _hp = _species.Hp * 4f;
-        Radius *= 1.5f;
+        _maxHp = _hp = _maxHp * scale;
+        _damage *= scale;
+    }
+
+    /// <summary>Turns this monster into a tougher, bigger, labelled leader (call before adding to the tree).</summary>
+    public void MakeElite(string title, float hpMult = 4f, float sizeMult = 1.5f)
+    {
+        _maxHp = _hp = _maxHp * hpMult;
+        Radius *= sizeMult;
         _elite = true;
         _eliteTitle = title;
     }
+
+    /// <summary>A chapter boss: keeps its size, gets a name banner.</summary>
+    public void MakeBoss()
+    {
+        MakeElite($"BOSS: {_species.Name.ToUpper()}", hpMult: 1f, sizeMult: 1f);
+        IsBoss = true;
+    }
+
+    public float HpRatio => _hp / _maxHp;
 
     /// <summary>
     /// A Label node shapes its text once; drawing the same outlined text from
@@ -108,7 +130,7 @@ public partial class Monster : CharacterBody2D
     {
         if (_dead)
             return;
-        _asleep = _target.GlobalPosition.DistanceSquaredTo(GlobalPosition) > SleepRange * SleepRange;
+        _asleep = !AlwaysAggro && _target.GlobalPosition.DistanceSquaredTo(GlobalPosition) > SleepRange * SleepRange;
         if (_asleep)
             return;
         float dt = (float)delta;
@@ -129,7 +151,7 @@ public partial class Monster : CharacterBody2D
 
         var toPlayer = _target.GlobalPosition - GlobalPosition;
         var fromHome = GlobalPosition - _home;
-        if (toPlayer.Length() < AggroRange && fromHome.Length() < LeashRange)
+        if (AlwaysAggro || (toPlayer.Length() < AggroRange && fromHome.Length() < LeashRange))
         {
             if (toPlayer.Length() <= Radius + PlayerRadius + 8f)
             {
@@ -137,7 +159,7 @@ public partial class Monster : CharacterBody2D
                 if (_attackTimer <= 0f)
                 {
                     _attackTimer = AttackCooldown;
-                    _target.TakeDamage(_species.Damage);
+                    _target.TakeDamage(_damage);
                 }
             }
             else

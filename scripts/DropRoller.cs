@@ -17,6 +17,9 @@ public sealed class KillDrop
     public bool SkillIsNew { get; set; }
     /// <summary>Character XP for the kill.</summary>
     public int Xp { get; set; }
+    /// <summary>Material dropped ("" = none), filled in by PlayerData.</summary>
+    public string Material { get; set; } = "";
+    public int MaterialCount { get; set; }
     /// <summary>Filled in by PlayerData once the pet is added.</summary>
     public Pet? AddedPet { get; set; }
 }

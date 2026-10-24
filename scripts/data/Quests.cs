@@ -10,8 +10,8 @@ public enum QuestGoal
     Kill,
     /// <summary>Have Count Echoes in the ranch fence.</summary>
     FencePet,
-    /// <summary>Clear the scripted swarm of red-streaked slimes in the Whispering Plains.</summary>
-    ClearSwarm,
+    /// <summary>Clear the stage with id Target (e.g. "1-3").</summary>
+    ClearStage,
     /// <summary>Have a battle companion chosen.</summary>
     BattlePet,
     /// <summary>Buy Count upgrades of any kind.</summary>
@@ -70,8 +70,8 @@ public static class Quests
             "Good. You're starting to hear it. Wait... that bell. That's the alarm."),
         new("ch1_defend", 1, "Red in the Grass",
             "A wounded guard says slimes are pouring in from the Whispering Plains, their bodies streaked with red light. " +
-            "Go through the gate and stop them before they reach Hearthwood!",
-            "Stop the red-streaked slime swarm in the Whispering Plains", QuestGoal.ClearSwarm, "", 1, 150, 250,
+            "Go through the gate to the plains map and stop them before they reach Hearthwood!",
+            "Clear Stage 1-3: Red in the Grass (through the village gate)", QuestGoal.ClearStage, "1-3", 1, 150, 250,
             "You held them off. But this red residue on the earth... It has started again."),
         new("ch2_echo", 2, "The First Companion",
             "One of the slimes you fought left a small crystal instead of vanishing. A Monster Echo: the surviving imprint " +

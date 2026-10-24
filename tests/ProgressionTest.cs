@@ -7,13 +7,12 @@ namespace RambleRumble.Tests;
 /// <summary>
 /// First-milestone checks: character level and skill slots, lineage and class,
 /// skill boxes and mastery, Rumble energy, the Ember skills, the battle pet,
-/// the full Prologue + Chapter 1 quest line, region locks and save migration.
+/// the Chapter 1–2 quest line (with stage 1-3 as the swarm) and save migration.
 /// Run: godot --headless --path . res://tests/ProgressionTest.tscn -- --test
 /// </summary>
 public partial class ProgressionTest : TestScene
 {
-    private World _world = null!;
-    private Player Player => _world.Player;
+    private World _village = null!;
 
     public override async void _Ready()
     {
@@ -22,11 +21,7 @@ public partial class ProgressionTest : TestScene
         CheckMigration();
 
         Data.ResetProgress();
-        _world = GD.Load<PackedScene>("res://scenes/main.tscn").Instantiate<World>();
-        GetTree().Root.CallDeferred(Node.MethodName.AddChild, _world);
-        for (int i = 0; i < 3; i++)
-            await PhysicsFrame();
-
+        _village = await LoadGame();
         await CheckStoryLine();
         await CheckEmberSkills();
         await CheckBattlePet();
@@ -108,37 +103,36 @@ public partial class ProgressionTest : TestScene
     private async System.Threading.Tasks.Task CheckStoryLine()
     {
         Data.ChooseStarter("flame_fist");
-        _world.Hud.StarterPanel.Visible = false;
-        Check(!Zones.ById("B").IsOpenFor(Data), "Verdant Forest starts sealed");
-        Check(Zones.ById("D").LockReason(Data).Contains("future update"), "regions for unwritten chapters say they're coming later");
+        _village.Hud.StarterPanel.Visible = false;
 
-        _world.TalkToQuestGiver();
-        Check(_world.Hud.Dialogue.Visible, "talking to Garrick opens dialogue");
+        _village.TalkToQuestGiver();
+        Check(_village.Hud.Dialogue.Visible, "talking to Garrick opens dialogue");
 
         // Chapter 1-1: the Adventurer Trial (training).
         Data.AcceptQuest();
         while (Data.TrainingLevel < 2)
-            _world.OnTrainPressed();
+            _village.OnTrainPressed();
         Check(Data.QuestReady, "the trial completes at Training Lv 2");
         int gold = Data.Gold;
         Check(Data.TurnInQuest()?.Id == "ch1_trial" && Data.Gold == gold + 50, "hand-in pays the reward");
 
-        // Chapter 1-2: the red-streaked slime swarm.
+        // Chapter 1-2: the red-streaked slime swarm is stage 1-3.
         Data.AcceptQuest();
-        _world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-        await ProcessFrame();
-        Player.GlobalPosition = Zones.StorySwarm + new Vector2(-250, 0);
-        for (int i = 0; i < 4; i++)
-            await ProcessFrame();
-        var swarm = _world.Monsters.GetChildren().OfType<Monster>().Where(m => m.ZoneId == "swarm").ToList();
-        Check(swarm.Count == 9 && swarm.All(m => m.Corrupted), $"approaching the beacon spawns 9 red-streaked slimes (got {swarm.Count})");
+        Check(!Data.QuestReady, "the swarm quest waits for stage 1-3");
+        var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get("1-3")));
+        var swarm = stage.AliveMonsters;
+        Check(swarm.Count == 9 && swarm.All(m => m.Corrupted), $"stage 1-3 holds 9 red-streaked slimes incl. the leader (got {swarm.Count})");
         foreach (var monster in swarm)
             monster.TakeDamage(1_000_000f, showNumber: false);
+        await ProcessFrame();
+        stage.Player.GlobalPosition = stage.Map.GoalPoint;
         for (int i = 0; i < 3; i++)
             await ProcessFrame();
-        Check(Data.QuestReady, "clearing the swarm completes the quest");
+        Check(stage.Outcome == StageOutcome.Victory && Data.StageCleared("1-3"), "clearing the swarm and reaching the flag clears 1-3");
+        Check(Data.QuestReady, "clearing stage 1-3 completes the swarm quest");
         Data.TurnInQuest();
         Check(Data.CompletedChapter == 1, "Chapter 1 complete");
+        _village = await Go<World>(() => Game.Instance.ShowVillage());
 
         // Chapter 2-1: the first Echo (5 slimes, then Garrick's crystal wakes up).
         Data.AcceptQuest();
@@ -172,9 +166,7 @@ public partial class ProgressionTest : TestScene
         Data.TurnInQuest();
         Check(Data.OwnedSkills.Count + Data.Mastery.Values.Sum() > skillsBefore, "the chapter finale hands out a skill box");
         Check(Data.CompletedChapter == 2 && Data.CurrentQuest == null, "Chapter 2 complete; no quests left");
-        Check(Zones.ById("B").IsOpenFor(Data), "Verdant Forest opens after Chapter 2");
-        Check(!Zones.ById("D").IsOpenFor(Data), "Broken Highlands waits for Chapter 3");
-        GD.Print($"  info  after Chapter 2 the player is level {Data.Level}");
+        GD.Print($"  info  after Chapter 2 of the story the player is level {Data.Level}");
     }
 
     private async System.Threading.Tasks.Task CheckEmberSkills()
@@ -188,29 +180,28 @@ public partial class ProgressionTest : TestScene
                 Data.OwnedSkills.Add(id);
         }
         Data.SetBattlePet(Data.Pets[0].Id, false);
-        _world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-        await PhysicsFrame();
+        var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get("1-1")));
+        var player = stage.Player;
 
         foreach (var id in new[] { "ember_spark", "ember_arc", "ember_surge", "ember_guard", "ember_step" })
         {
             var skill = SkillCatalog.Get(id);
             Data.EquippedSkills.Clear();
             Data.EquippedSkills.Add(id);
-            Player.RefillEnergy();
-            var target = _world.SpawnMonster("Goblin", Player.GlobalPosition + Player.Facing * 50f);
+            player.RefillEnergy();
+            var target = stage.SpawnAt("Goblin", player.GlobalPosition + player.Facing * 50f);
             await PhysicsFrame();
-            float energy = Player.Energy;
+            float energy = player.Energy;
             int mastery = Data.Mastery.GetValueOrDefault(id);
-            bool cast = Player.UseSkill(0);
+            bool cast = player.UseSkill(0);
             await PhysicsFrame();
             string detail = skill.Archetype switch
             {
-                SkillArchetype.Surge => Player.SurgeMult > 1f ? "damage buff on" : "NO BUFF",
-                SkillArchetype.Guard => Player.Guarding ? "guard on" : "NO GUARD",
+                SkillArchetype.Surge => player.SurgeMult > 1f ? "damage buff on" : "NO BUFF",
+                SkillArchetype.Guard => player.Guarding ? "guard on" : "NO GUARD",
                 _ => "",
             };
-            Check(cast && Player.Energy < energy && Data.Mastery.GetValueOrDefault(id) > mastery
-                  && !detail.StartsWith("NO"),
+            Check(cast && player.Energy < energy && Data.Mastery.GetValueOrDefault(id) > mastery && !detail.StartsWith("NO"),
                 $"{skill.Name} casts, costs {skill.Cost} energy and trains mastery {detail}");
             if (IsInstanceValid(target))
                 target.QueueFree();
@@ -220,10 +211,10 @@ public partial class ProgressionTest : TestScene
         await Wait(1.0);
         Data.EquippedSkills.Clear();
         Data.EquippedSkills.Add("ember_spark");
-        Player.SetEnergy(2f);
-        Check(!Player.UseSkill(0), "a skill can't be cast without enough energy");
+        player.SetEnergy(2f);
+        Check(!player.UseSkill(0), "a skill can't be cast without enough energy");
         await Wait(1.0);
-        Check(Player.Energy > 2f, $"energy regenerates ({Player.Energy:0} after 1 s)");
+        Check(player.Energy > 2f, $"energy regenerates ({player.Energy:0} after 1 s)");
     }
 
     private async System.Threading.Tasks.Task CheckBattlePet()
@@ -231,18 +222,15 @@ public partial class ProgressionTest : TestScene
         var pet = Data.Pets[0];
         Data.SetBattlePet(pet.Id, true);
         Check(Data.BattlePet == pet && !Data.FencedPets().Contains(pet), "battle pet leaves the fence (no gold while fighting)");
-        _world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-        await PhysicsFrame();
+        var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get("1-1")));
         int kills = Data.Kills;
-        var foe = _world.SpawnMonster("Slime", Player.GlobalPosition + new Vector2(60, 0));
+        var foe = stage.SpawnAt("Slime", stage.Player.GlobalPosition + new Vector2(60, 0));
         // The player never attacks (and is kept alive); only the pet fights.
         for (int i = 0; i < 60 * 15 && Data.Kills == kills; i++)
         {
-            Player.HealFull();
+            stage.Player.HealFull();
             await PhysicsFrame();
         }
         Check(Data.Kills > kills, "the battle pet defeats a monster on its own");
-        if (IsInstanceValid(foe))
-            foe.QueueFree();
     }
 }

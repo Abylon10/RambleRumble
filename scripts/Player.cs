@@ -28,6 +28,8 @@ public partial class Player : CharacterBody2D
     public const int MaxSkillSlots = 6;
 
     public float Hp { get; private set; } = 100f;
+    /// <summary>Follows the player; pages may set its zoom and limits.</summary>
+    public Camera2D Camera { get; private set; } = null!;
     public Vector2 JoystickVector { get; set; }
     public Vector2 Facing { get; private set; } = Vector2.Right;
     public bool InSafeZone { get; set; } = true;
@@ -63,9 +65,9 @@ public partial class Player : CharacterBody2D
         CollisionLayer = 1;
         CollisionMask = 4;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = BodyRadius } });
-        var camera = new Camera2D { PositionSmoothingEnabled = true };
-        AddChild(camera);
-        camera.MakeCurrent();
+        Camera = new Camera2D { PositionSmoothingEnabled = true };
+        AddChild(Camera);
+        Camera.MakeCurrent();
         Hp = Data.MaxHp;
 
         _sprite = new AnimatedSprite2D { TextureFilter = TextureFilterEnum.Nearest };

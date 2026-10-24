@@ -95,6 +95,9 @@ public static class GameConfig
         new("Crystal Bat", "Epic", 260f, 22f, 150f, 17f, 60f, 30, 50, new Color(0.55f, 0.40f, 0.95f), 35),
         new("Fire Imp", "Legendary", 480f, 35f, 120f, 19f, 100f, 70, 110, new Color(0.95f, 0.35f, 0.15f), 50),
         new("Stone Golem", "Mythic", 1800f, 60f, 55f, 34f, 180f, 300, 500, new Color(0.45f, 0.55f, 0.55f), 70),
+        // Chapter bosses.
+        new("Slime King", "Rare", 520f, 10f, 70f, 32f, 26f, 40, 60, new Color(0.55f, 0.90f, 0.40f), 10),
+        new("Crimson Fang", "Epic", 1150f, 16f, 150f, 30f, 55f, 120, 180, new Color(0.62f, 0.16f, 0.16f), 18),
     };
 
     // Skills (starters and the Ember lineage) live in SkillCatalog.cs.
@@ -118,6 +121,53 @@ public static class GameConfig
     public static SizeInfo Size(string name) => Sizes.FirstOrDefault(s => s.Name == name) ?? Sizes[1];
 
     public static int TrainingXpNeeded(int level) => 10 + 5 * level;
+
+    // --- Materials, items and the Market -------------------------------------
+
+    /// <param name="SellPrice">Gold the Market pays for one.</param>
+    public record MaterialInfo(string Name, int SellPrice, Color Color);
+
+    public static readonly MaterialInfo[] Materials =
+    {
+        new("Slime Gel", 4, new Color(0.45f, 0.85f, 0.45f)),
+        new("Meadow Leaf", 5, new Color(0.55f, 0.80f, 0.30f)),
+        new("Oak Wood", 6, new Color(0.62f, 0.45f, 0.26f)),
+        new("Mushroom Cap", 8, new Color(0.85f, 0.30f, 0.25f)),
+        new("Forest Herb", 9, new Color(0.30f, 0.70f, 0.50f)),
+        new("Wolf Fang", 10, new Color(0.92f, 0.90f, 0.82f)),
+        new("Goblin Scrap", 14, new Color(0.62f, 0.62f, 0.66f)),
+        new("Crystal Shard", 40, new Color(0.55f, 0.75f, 1.00f)),
+    };
+
+    public static MaterialInfo Material(string name) => Materials.First(m => m.Name == name);
+
+    /// <summary>What each species may drop (35% per kill; bosses always drop three).</summary>
+    public static string MaterialFrom(string species) => species switch
+    {
+        "Slime" or "Aqua Slime" or "Slime King" => "Slime Gel",
+        "Wolf" or "Boar" or "Crimson Fang" => "Wolf Fang",
+        "Shroom" => "Mushroom Cap",
+        "Goblin" => "Goblin Scrap",
+        _ => "Crystal Shard",
+    };
+
+    public const float MaterialDropChance = 0.35f;
+
+    /// <summary>Materials found in a chapter's treasure chests.</summary>
+    public static string[] ChapterMaterials(int chapter) =>
+        chapter == 1 ? new[] { "Meadow Leaf", "Oak Wood" } : new[] { "Forest Herb", "Oak Wood" };
+
+    /// <param name="Max">Most you can carry.</param>
+    public record ItemInfo(string Id, string Name, string Desc, int Price, int Max, Color Color);
+
+    public static readonly ItemInfo[] Items =
+    {
+        new("health_potion", "Health Potion", "Restores half your HP in a stage", 40, 9, new Color(0.95f, 0.35f, 0.40f)),
+        new("energy_tonic", "Energy Tonic", "Refills your Rumble energy", 30, 9, new Color(0.40f, 0.70f, 1.00f)),
+        new("skill_box", "Skill Box", "Opens at once: a skill of your lineage or mastery", 1500, 99, new Color(1.00f, 0.80f, 0.30f)),
+    };
+
+    public static ItemInfo Item(string id) => Items.First(i => i.Id == id);
 
     // --- Character level (separate from training) -----------------------------
 

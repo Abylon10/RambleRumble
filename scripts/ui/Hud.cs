@@ -30,6 +30,7 @@ public partial class Hud : CanvasLayer
     private TextureRect _portrait = null!;
     private Label _questTitle = null!;
     private Label _questObjective = null!;
+    private bool _questTrackerAllowed = true;
     private PanelContainer _questPanel = null!;
     private Label _toastLabel = null!;
     private readonly Queue<(string Text, Color Color)> _toasts = new();
@@ -46,6 +47,7 @@ public partial class Hud : CanvasLayer
     public PanelContainer StarterPanel { get; private set; } = null!;
     public PetsPanel PetsPanel { get; private set; } = null!;
     public UpgradesPanel UpgradesPanel { get; private set; } = null!;
+    public MarketPanel MarketPanel { get; private set; } = null!;
     public PanelContainer SkillsPanel { get; private set; } = null!;
     public DialoguePanel Dialogue { get; private set; } = null!;
 
@@ -68,6 +70,8 @@ public partial class Hud : CanvasLayer
         root.AddChild(PetsPanel);
         UpgradesPanel = new UpgradesPanel();
         root.AddChild(UpgradesPanel);
+        MarketPanel = new MarketPanel();
+        root.AddChild(MarketPanel);
         SkillsPanel = BuildSkillsPanel(root);
         StarterPanel = BuildStarterPanel(root);
         StarterPanel.Visible = !Data.HasStarter;
@@ -123,6 +127,13 @@ public partial class Hud : CanvasLayer
 
     public void SetTrainingAvailable(bool available) => _trainButton.Visible = available;
 
+    /// <summary>Stages show their own status in the tracker's place.</summary>
+    public void SetQuestTrackerVisible(bool visible)
+    {
+        _questTrackerAllowed = visible;
+        _questPanel.Visible = visible && Data.HasStarter;
+    }
+
     public void SetTalkAvailable(bool available)
     {
         _talkButton.Visible = available;
@@ -149,7 +160,7 @@ public partial class Hud : CanvasLayer
     {
         if (StarterPanel.Visible)
             return;
-        foreach (var each in new Control[] { PetsPanel, SkillsPanel, UpgradesPanel })
+        foreach (var each in new Control[] { PetsPanel, SkillsPanel, UpgradesPanel, MarketPanel })
             each.Visible = each == panel;
         Dialogue.Visible = false;
         Refresh();
@@ -401,7 +412,7 @@ public partial class Hud : CanvasLayer
     private void RefreshQuest()
     {
         var quest = Data.CurrentQuest;
-        _questPanel.Visible = Data.HasStarter;
+        _questPanel.Visible = Data.HasStarter && _questTrackerAllowed;
         if (quest == null)
         {
             _questTitle.Text = "Story complete (for now)";

@@ -4,109 +4,99 @@ using Godot;
 namespace RambleRumble.Tests;
 
 /// <summary>
-/// Opens the main scene in a given state and saves a screenshot (needs a window, not --headless).
-/// Run: godot --path . res://tests/Screenshot.tscn -- --test &lt;out.png&gt; [starter] [wild] [pets] [upgrades] [fence] [at=x,y] [zoom=z]
+/// Opens the game in a given state and saves a screenshot (needs a window, not --headless).
+/// Run: godot --path . res://tests/Screenshot.tscn -- --test &lt;out.png&gt; [options]
+/// Options: new (character creation), garrick, pets, skills, upgrades, market,
+/// map=1|2, stage=&lt;id&gt; (add "puzzle" to stand by the puzzle, "goal" by the flag), progress (cleared stages).
 /// </summary>
-public partial class Screenshot : Node
+public partial class Screenshot : TestScene
 {
     public override async void _Ready()
     {
         var args = OS.GetCmdlineUserArgs();
         string output = args[1];
-        var data = PlayerData.Instance;
-        data.ResetProgress();
-        var world = GD.Load<PackedScene>("res://scenes/main.tscn").Instantiate<World>();
-        GetTree().Root.CallDeferred(Node.MethodName.AddChild, world);
-        await ToSignal(GetTree().CreateTimer(0.5), SceneTreeTimer.SignalName.Timeout);
+        string Arg(string key) => args.FirstOrDefault(a => a.StartsWith(key + "="))?.Split('=')[1] ?? "";
 
-        if (args.Contains("starter"))
+        Data.ResetProgress();
+        if (!args.Contains("new"))
         {
-            data.ChooseStarter(args.Contains("ember") ? "flame_fist" : "wind_slash");
-            world.Hud.StarterPanel.Visible = false;
+            Data.ChooseStarter("flame_fist");
+            Data.Gold = 640;
+            Data.AddMaterial("Slime Gel", 6);
+            Data.AddMaterial("Meadow Leaf", 3);
+            Data.AddMaterial("Crystal Shard", 1);
+            Data.Items["health_potion"] = 2;
+            Data.Items["energy_tonic"] = 1;
         }
-        // Story states: "garrick" stands by Garrick and talks; "swarm" goes to the Chapter 1 swarm;
-        // "skills" opens the Skills panel.
+        if (args.Contains("progress"))
+        {
+            foreach (var (id, stars) in new[] { ("1-1", 3), ("1-2", 3), ("1-3", 2), ("1-4", 3) })
+                Data.StageStars[id] = stars;
+            Data.StageChests["1-1"] = 3;
+        }
+        var village = await LoadGame();
+        village.Hud.StarterPanel.Visible = args.Contains("new");
+
         if (args.Contains("garrick"))
         {
-            world.Player.GlobalPosition = LobbyMap.QuestGiver + new Vector2(60, 40);
-            world.TalkToQuestGiver();
+            village.Player.GlobalPosition = LobbyMap.QuestGiver + new Vector2(60, 40);
+            village.TalkToQuestGiver();
         }
-        if (args.Contains("swarm"))
+        if (args.Contains("pets") || args.Contains("upgrades") || args.Contains("market") || args.Contains("skills"))
         {
-            data.AcceptQuest();
-            data.Train(100f);
-            data.TurnInQuest();
-            data.AcceptQuest();
-            world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-            world.Player.GlobalPosition = Zones.StorySwarm + new Vector2(-260, 40);
-        }
-        if (args.Contains("skills"))
-        {
-            data.DebugUnlockWorld(22);
-            foreach (var id in new[] { "ember_spark", "ember_arc", "ember_surge" })
-                data.OwnedSkills.Add(id);
-            data.AddMastery("flame_fist", 90);
-            world.Hud.Open(world.Hud.SkillsPanel);
-        }
-        if (args.Contains("pets") || args.Contains("upgrades") || args.Contains("fence"))
-        {
-            SeedPets(data);
-            world.Player.GlobalPosition = LobbyMap.FenceRect.GetCenter() + new Vector2(0, 150);
-        }
-        if (args.Contains("wild"))
-        {
-            world.Teleport(Zones.ArrivalPoint, toWilderness: true);
-            foreach (var species in new[] { "Slime", "Slime", "Shroom" })
-                world.SpawnMonster(species, Zones.ArrivalPoint + new Vector2((float)GD.RandRange(-260, 260), (float)GD.RandRange(-200, -80)));
-        }
-        await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
-        if (args.Contains("pets"))
-        {
-            world.Hud.Open(world.Hud.PetsPanel);
-            world.Hud.PetsPanel.SelectedId = 1;
-            world.Hud.PetsPanel.Refresh();
-        }
-        if (args.Contains("upgrades"))
-            world.Hud.Open(world.Hud.UpgradesPanel);
-        // "at=x,y" moves the player there and "zoom=z" zooms the camera out, for map overviews.
-        foreach (var arg in args)
-        {
-            if (arg.StartsWith("at="))
+            SeedPets();
+            if (args.Contains("skills"))
             {
-                data.DebugUnlockWorld();
-                var xy = arg[3..].Split(',');
-                world.Player.GlobalPosition = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
-                world.Player.InSafeZone = true;
+                Data.DebugUnlockWorld(22);
+                foreach (var id in new[] { "ember_spark", "ember_arc", "ember_surge" })
+                    Data.OwnedSkills.Add(id);
             }
-            if (arg.StartsWith("zoom="))
-                GetViewport().GetCamera2D().Zoom = Vector2.One * float.Parse(arg[5..]);
+            village.Hud.Open(args.Contains("pets") ? village.Hud.PetsPanel
+                : args.Contains("upgrades") ? village.Hud.UpgradesPanel
+                : args.Contains("skills") ? village.Hud.SkillsPanel
+                : village.Hud.MarketPanel);
+            if (args.Contains("market") && args.Contains("sell"))
+                village.Hud.MarketPanel.ShowTab(selling: true);
         }
-        if (args.Any(a => a.StartsWith("at=")))
-            GetViewport().GetCamera2D().ResetSmoothing();
-        await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
+
+        if (Arg("map") != "")
+        {
+            if (Arg("map") == "2")
+                Data.DebugClearStages(2);
+            var map = await Go<ChapterMapPage>(() => Game.Instance.ShowChapterMap(int.Parse(Arg("map"))));
+            if (Arg("select") != "")
+                map.Select(StageCatalog.Get(Arg("select")));
+        }
+        if (Arg("stage") != "")
+        {
+            var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get(Arg("stage"))));
+            var player = stage.Player;
+            player.InSafeZone = true;
+            if (args.Contains("puzzle"))
+                player.GlobalPosition = Iso.TileCenter(stage.Map.PuzzleTiles[1].X, stage.Map.PuzzleTiles[1].Y) + new Vector2(-50, 10);
+            else if (args.Contains("goal"))
+                player.GlobalPosition = stage.Map.RoadPoint(0.86f);
+            else if (args.Contains("mid"))
+                player.GlobalPosition = stage.Map.RoadPoint(0.35f);
+            player.Camera.ResetSmoothing();
+        }
+        await Wait(1.2);
         GetViewport().GetTexture().GetImage().SavePng(output);
-        data.ResetProgress();
+        Data.ResetProgress();
         GetTree().Quit();
     }
 
-    private static void SeedPets(PlayerData data)
+    private static void SeedPets()
     {
-        data.Gold = 3200;
         var specs = new (string Species, string Size, int Stars)[]
         {
-            ("Goblin", "Giant", 2), ("Wolf", "Big", 1), ("Wolf", "Normal", 1), ("Slime", "Titan", 1),
-            ("Slime", "Normal", 1), ("Slime", "Tiny", 1), ("Wolf", "Tiny", 1),
+            ("Goblin", "Giant", 2), ("Wolf", "Big", 1), ("Wolf", "Normal", 1), ("Slime", "Titan", 1), ("Slime", "Normal", 1),
         };
         foreach (var (species, size, stars) in specs)
         {
-            var pet = data.AddPet(species, size);
+            var pet = Data.AddPet(species, size);
             pet.Level = 4;
-            pet.Xp = 15;
             pet.Stars = stars;
-            data.SetFenced(pet.Id, false);
         }
-        foreach (int id in new[] { 1, 2, 4 })
-            data.SetFenced(id, true);
-        data.StarShards["Uncommon"] = 1;
     }
 }
