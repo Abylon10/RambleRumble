@@ -264,10 +264,8 @@ public partial class Player : CharacterBody2D
     public override void _Draw()
     {
         // Ground shadow under the feet; the sprite (a child) draws on top.
-        DrawSetTransform(new Vector2(0, FeetY - 2), 0f, new Vector2(1f, 0.35f));
-        DrawCircle(Vector2.Zero, BodyRadius, new Color(0, 0, 0, 0.3f));
-        DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+        Shapes.Ellipse(this, new Vector2(0, FeetY - 2), new Vector2(BodyRadius, BodyRadius * 0.35f), new Color(0, 0, 0, 0.3f));
         if (_invuln > 0f)
-            DrawArc(Vector2.Zero, BodyRadius + 5, 0f, Mathf.Tau, 32, new Color(1f, 0.95f, 0.4f, 0.8f), 2f);
+            Shapes.Ring(this, Vector2.Zero, BodyRadius + 5, new Color(1f, 0.95f, 0.4f, 0.8f));
     }
 }

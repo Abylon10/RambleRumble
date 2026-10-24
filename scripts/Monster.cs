@@ -15,6 +15,8 @@ public partial class Monster : CharacterBody2D
     private const float LeashRange = 520f;
     private const float AttackCooldown = 1.1f;
     private const float PlayerRadius = 18f;
+    /// <summary>Beyond this distance from the player a monster skips AI and redraws.</summary>
+    private const float SleepRange = 1400f;
 
     public string SpeciesId { get; private set; } = "Slime";
     /// <summary>Id of the Wilderness zone that spawned it ("" if spawned directly).</summary>
@@ -35,6 +37,7 @@ public partial class Monster : CharacterBody2D
     private Vector2 _wanderDir;
     private float _wanderTimer;
     private bool _dead;
+    private bool _asleep;
 
     public void Setup(string speciesId, Vector2 position, Player target, string zoneId = "")
     {
@@ -53,11 +56,43 @@ public partial class Monster : CharacterBody2D
         CollisionLayer = 2;
         CollisionMask = 4;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Radius } });
+        if (_species.Rarity == "Mythic")
+            AddChild(MakeBossLabel());
+    }
+
+    /// <summary>
+    /// A Label node shapes its text once; drawing the same outlined text from
+    /// _Draw every frame cost ~10 ms each time on a laptop GPU.
+    /// </summary>
+    private Label MakeBossLabel()
+    {
+        var label = new Label
+        {
+            Text = $"BOSS: {_species.Name.ToUpper()}",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Size = new Vector2(240, 24),
+            Position = new Vector2(-120, -Radius - 40),
+        };
+        label.AddThemeFontSizeOverride("font_size", 16);
+        label.AddThemeColorOverride("font_color", GameConfig.RarityColor("Mythic"));
+        label.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.7f));
+        label.AddThemeConstantOverride("outline_size", 6);
+        return label;
+    }
+
+    public override void _Process(double delta)
+    {
+        // Redraw once per rendered frame (not per physics step), and only when awake.
+        if (!_asleep && !_dead)
+            QueueRedraw();
     }
 
     public override void _PhysicsProcess(double delta)
     {
         if (_dead)
+            return;
+        _asleep = _target.GlobalPosition.DistanceSquaredTo(GlobalPosition) > SleepRange * SleepRange;
+        if (_asleep)
             return;
         float dt = (float)delta;
         _attackTimer = Mathf.Max(0f, _attackTimer - dt);
@@ -69,7 +104,6 @@ public partial class Monster : CharacterBody2D
             if (_dead)
                 return;
         }
-        QueueRedraw();
         if (_stunLeft > 0f)
         {
             _stunLeft -= dt;
@@ -140,15 +174,13 @@ public partial class Monster : CharacterBody2D
         var body = _flash > 0f ? Colors.White : _species.Color;
         if (_burnLeft > 0f)
             body = body.Lerp(new Color(1f, 0.4f, 0.1f), 0.35f);
-        DrawCircle(Vector2.Zero, Radius, body);
-        DrawArc(Vector2.Zero, Radius, 0f, Mathf.Tau, 32, GameConfig.RarityColor(_species.Rarity), 3f);
+        Shapes.Circle(this, Vector2.Zero, Radius, body);
+        Shapes.Ring(this, Vector2.Zero, Radius + 1f, GameConfig.RarityColor(_species.Rarity));
         var eyeDir = (_target.GlobalPosition - GlobalPosition).Normalized() * Radius * 0.35f;
-        DrawCircle(eyeDir + new Vector2(-5, -4), 3f, Colors.Black);
-        DrawCircle(eyeDir + new Vector2(5, -4), 3f, Colors.Black);
+        Shapes.Circle(this, eyeDir + new Vector2(-5, -4), 3f, Colors.Black);
+        Shapes.Circle(this, eyeDir + new Vector2(5, -4), 3f, Colors.Black);
         if (_stunLeft > 0f)
-            DrawArc(new Vector2(0, -Radius - 6), 8f, 0f, Mathf.Tau, 12, new Color(1f, 1f, 0.4f), 2f);
-        if (_species.Rarity == "Mythic")
-            MapArt.Label(this, new Vector2(0, -Radius - 18), $"BOSS: {_species.Name.ToUpper()}", 16, GameConfig.RarityColor("Mythic"));
+            Shapes.Ring(this, new Vector2(0, -Radius - 6), 8f, new Color(1f, 1f, 0.4f));
         if (_hp < _maxHp)
         {
             float w = Radius * 2.2f;

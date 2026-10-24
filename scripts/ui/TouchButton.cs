@@ -12,13 +12,20 @@ public partial class TouchButton : Control
 {
     public event Action? Tapped;
 
-    public string Label { get; set; } = "";
-    public Color Tint { get; set; } = Colors.White;
+    // Setters redraw only on change; redrawing every frame re-shaped the label text each time.
+    public string Label { get => _label; set => SetAndRedraw(ref _label, value); }
+    public Color Tint { get => _tint; set => SetAndRedraw(ref _tint, value); }
     /// <summary>Drawn inside the circle instead of the label when set.</summary>
-    public Texture2D? Icon { get; set; }
+    public Texture2D? Icon { get => _icon; set => SetAndRedraw(ref _icon, value); }
     /// <summary>1.0 = just used, 0.0 = ready. Drawn as a dark sweep.</summary>
-    public float CooldownRatio { get; set; }
-    public bool Held { get; private set; }
+    public float CooldownRatio { get => _cooldownRatio; set => SetAndRedraw(ref _cooldownRatio, value); }
+    public bool Held { get => _held; private set => SetAndRedraw(ref _held, value); }
+
+    private string _label = "";
+    private Color _tint = Colors.White;
+    private Texture2D? _icon;
+    private float _cooldownRatio;
+    private bool _held;
 
     private int _touchIndex = -1;
 
@@ -43,21 +50,27 @@ public partial class TouchButton : Control
         }
     }
 
-    public override void _Process(double delta) => QueueRedraw();
+    private void SetAndRedraw<T>(ref T field, T value)
+    {
+        if (System.Collections.Generic.EqualityComparer<T>.Default.Equals(field, value))
+            return;
+        field = value;
+        QueueRedraw();
+    }
 
     public override void _Draw()
     {
         var center = Size * 0.5f;
         float radius = Size.X * 0.5f;
-        DrawCircle(center, radius, new Color(0, 0, 0, Held ? 0.6f : 0.45f));
-        DrawArc(center, radius - 2, 0f, Mathf.Tau, 48, Tint, 4f);
+        Shapes.Circle(this, center, radius, new Color(0, 0, 0, Held ? 0.6f : 0.45f));
+        Shapes.Ring(this, center, radius - 1, Tint, thin: true);
         if (Icon != null)
         {
             float side = radius * 1.25f;
             var iconRect = new Rect2(center - new Vector2(side, side) / 2, new Vector2(side, side));
             DrawTextureRect(Icon, iconRect, false);
         }
-        if (CooldownRatio > 0f)
+        if (CooldownRatio > 0.02f)
         {
             const int steps = 32;
             var points = new Vector2[steps + 2];

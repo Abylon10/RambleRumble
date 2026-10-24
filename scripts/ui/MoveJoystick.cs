@@ -50,8 +50,8 @@ public partial class MoveJoystick : Control
     public override void _Draw()
     {
         var center = Size * 0.5f;
-        DrawCircle(center, Size.X * 0.5f, new Color(0, 0, 0, 0.30f));
-        DrawArc(center, Size.X * 0.5f, 0f, Mathf.Tau, 48, new Color(1, 1, 1, 0.35f), 3f);
-        DrawCircle(center + _knob, KnobRadius, new Color(1, 1, 1, 0.55f));
+        Shapes.Circle(this, center, Size.X * 0.5f, new Color(0, 0, 0, 0.30f));
+        Shapes.Ring(this, center, Size.X * 0.5f, new Color(1, 1, 1, 0.35f), thin: true);
+        Shapes.Circle(this, center + _knob, KnobRadius, new Color(1, 1, 1, 0.55f));
     }
 }

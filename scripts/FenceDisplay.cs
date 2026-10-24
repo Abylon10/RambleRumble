@@ -72,9 +72,25 @@ public partial class FenceDisplay : Node2D
             _walkers.Remove(id);
     }
 
+    private static readonly Vector2[] StarShape = BuildStar(5f, 2.2f);
+
+    private static Vector2[] BuildStar(float outer, float inner)
+    {
+        var points = new Vector2[10];
+        for (int i = 0; i < 10; i++)
+            points[i] = Vector2.FromAngle(-Mathf.Pi / 2 + i * Mathf.Pi / 5) * (i % 2 == 0 ? outer : inner);
+        return points;
+    }
+
+    private void DrawStar(Vector2 at)
+    {
+        DrawSetTransform(at, 0f, Vector2.One);
+        DrawColoredPolygon(StarShape, new Color(1f, 0.85f, 0.3f));
+        DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+    }
+
     public override void _Draw()
     {
-        var font = ThemeDB.FallbackFont;
         // Draw back-to-front so lower pets overlap higher ones.
         foreach (var walker in _walkers.Values.OrderBy(w => w.Pos.Y))
         {
@@ -82,12 +98,14 @@ public partial class FenceDisplay : Node2D
             var species = GameConfig.SpeciesOf(pet.Species);
             float radius = species.Radius * 0.8f * GameConfig.Size(pet.Size).Scale;
             var pos = walker.Pos;
-            DrawCircle(pos + new Vector2(0, radius * 0.8f), radius * 0.9f, new Color(0, 0, 0, 0.18f));
-            DrawCircle(pos, radius, species.Color);
-            DrawArc(pos, radius, 0f, Mathf.Tau, 24, GameConfig.RarityColor(pet.Rarity), 2f);
-            DrawCircle(pos + new Vector2(-radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
-            DrawCircle(pos + new Vector2(radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
-            DrawString(font, pos + new Vector2(-40, -radius - 6), new string('★', pet.Stars), HorizontalAlignment.Center, 80, 12, new Color(1f, 0.85f, 0.3f));
+            Shapes.Circle(this, pos + new Vector2(0, radius * 0.8f), radius * 0.9f, new Color(0, 0, 0, 0.18f));
+            Shapes.Circle(this, pos, radius, species.Color);
+            Shapes.Ring(this, pos, radius + 1f, GameConfig.RarityColor(pet.Rarity));
+            Shapes.Circle(this, pos + new Vector2(-radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
+            Shapes.Circle(this, pos + new Vector2(radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
+            // Small drawn stars: text here would be re-shaped every frame as pets walk.
+            for (int s = 0; s < pet.Stars; s++)
+                DrawStar(pos + new Vector2((s - (pet.Stars - 1) / 2f) * 10f, -radius - 8));
         }
     }
 }

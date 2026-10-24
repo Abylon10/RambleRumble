@@ -12,7 +12,8 @@ public enum FxKind
 
 /// <summary>
 /// Short-lived visual effect: an expanding ring, a filled circle, a line, or
-/// floating text. Placeholder art until real effects arrive.
+/// floating text. Placeholder art until real effects arrive. Text uses a Label
+/// node, which shapes its glyphs once instead of on every redraw.
 /// </summary>
 public partial class Fx : Node2D
 {
@@ -46,12 +47,34 @@ public partial class Fx : Node2D
     public static Fx FloatingText(Node parent, Vector2 position, string text, Color tint, float duration = 0.6f) =>
         Spawn(parent, position, FxKind.Text, tint, duration: duration, text: text);
 
+    public override void _Ready()
+    {
+        if (Kind != FxKind.Text)
+            return;
+        var label = new Label
+        {
+            Text = Text,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Size = new Vector2(160, 26),
+            Position = new Vector2(-80, -22),
+        };
+        label.AddThemeFontSizeOverride("font_size", 20);
+        label.AddThemeColorOverride("font_color", Tint);
+        AddChild(label);
+    }
+
     public override void _Process(double delta)
     {
         _t += (float)delta;
         if (Kind == FxKind.Text)
+        {
             Position += new Vector2(0, -45f * (float)delta);
-        QueueRedraw();
+            Modulate = new Color(1, 1, 1, Mathf.Clamp(1f - _t / Duration, 0f, 1f));
+        }
+        else
+        {
+            QueueRedraw();
+        }
         if (_t >= Duration)
             QueueFree();
     }
@@ -63,16 +86,13 @@ public partial class Fx : Node2D
         switch (Kind)
         {
             case FxKind.Ring:
-                DrawArc(Vector2.Zero, Radius * (0.6f + 0.4f * (1f - fade)), 0f, Mathf.Tau, 40, color, 5f);
+                Shapes.Ring(this, Vector2.Zero, Radius * (0.6f + 0.4f * (1f - fade)), color);
                 break;
             case FxKind.Circle:
-                DrawCircle(Vector2.Zero, Radius, new Color(Tint, fade * 0.55f));
+                Shapes.Circle(this, Vector2.Zero, Radius, new Color(Tint, fade * 0.55f));
                 break;
             case FxKind.Line:
                 DrawLine(Vector2.Zero, To, color, 8f);
-                break;
-            case FxKind.Text:
-                DrawString(ThemeDB.FallbackFont, new Vector2(-60, 0), Text, HorizontalAlignment.Center, 120, 20, color);
                 break;
         }
     }
