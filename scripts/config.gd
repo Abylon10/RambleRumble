@@ -6,14 +6,16 @@ extends Node
 const RARITY_ORDER = ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"]
 
 ## pet_chance / box_chance are per kill. pity = guaranteed pet on this many
-## kills of that rarity without a pet drop (0 = no pity).
+## kills of that rarity without a pet drop (0 = no pity). income = fence gold
+## per minute for a level 1, 1★, Normal-size pet. release_gold is paid (with
+## one Star Shard) when a pet of that rarity is released.
 const RARITY = {
-	"Common": {"pet_chance": 0.25, "box_chance": 0.10, "pity": 0, "color": Color(0.70, 0.70, 0.70)},
-	"Uncommon": {"pet_chance": 0.18, "box_chance": 0.12, "pity": 0, "color": Color(0.40, 0.85, 0.40)},
-	"Rare": {"pet_chance": 0.10, "box_chance": 0.15, "pity": 25, "color": Color(0.35, 0.60, 1.00)},
-	"Epic": {"pet_chance": 0.05, "box_chance": 0.20, "pity": 50, "color": Color(0.75, 0.40, 1.00)},
-	"Legendary": {"pet_chance": 0.02, "box_chance": 0.25, "pity": 120, "color": Color(1.00, 0.65, 0.10)},
-	"Mythic": {"pet_chance": 0.005, "box_chance": 0.30, "pity": 400, "color": Color(1.00, 0.30, 0.40)},
+	"Common": {"pet_chance": 0.25, "box_chance": 0.10, "pity": 0, "income": 1.0, "release_gold": 10, "color": Color(0.70, 0.70, 0.70)},
+	"Uncommon": {"pet_chance": 0.18, "box_chance": 0.12, "pity": 0, "income": 2.0, "release_gold": 20, "color": Color(0.40, 0.85, 0.40)},
+	"Rare": {"pet_chance": 0.10, "box_chance": 0.15, "pity": 25, "income": 4.0, "release_gold": 40, "color": Color(0.35, 0.60, 1.00)},
+	"Epic": {"pet_chance": 0.05, "box_chance": 0.20, "pity": 50, "income": 8.0, "release_gold": 80, "color": Color(0.75, 0.40, 1.00)},
+	"Legendary": {"pet_chance": 0.02, "box_chance": 0.25, "pity": 120, "income": 16.0, "release_gold": 160, "color": Color(1.00, 0.65, 0.10)},
+	"Mythic": {"pet_chance": 0.005, "box_chance": 0.30, "pity": 400, "income": 32.0, "release_gold": 320, "color": Color(1.00, 0.30, 0.40)},
 }
 
 ## Size is rolled once per pet. mult applies to HP and fence income only.
@@ -25,15 +27,39 @@ const SIZES = [
 	{"name": "Titan", "chance": 0.005, "scale": 2.0, "mult": 1.35},
 ]
 
-## Star rank -> level cap and stat/income multiplier (merging arrives in Phase 2).
+## Star rank -> level cap, stat/income multiplier, duplicate copies consumed
+## to reach this rank, and the gold cost of that merge.
 const STARS = {
-	1: {"max_level": 10, "mult": 1.00},
-	2: {"max_level": 20, "mult": 1.25},
-	3: {"max_level": 30, "mult": 1.60},
-	4: {"max_level": 40, "mult": 2.00},
-	5: {"max_level": 50, "mult": 2.50},
+	1: {"max_level": 10, "mult": 1.00, "copies": 0, "cost": 0},
+	2: {"max_level": 20, "mult": 1.25, "copies": 1, "cost": 500},
+	3: {"max_level": 30, "mult": 1.60, "copies": 2, "cost": 2500},
+	4: {"max_level": 40, "mult": 2.00, "copies": 3, "cost": 10000},
+	5: {"max_level": 50, "mult": 2.50, "copies": 4, "cost": 40000},
 }
+const MAX_STARS = 5
 const PET_LEVEL_BONUS = 0.04
+## Star Shards may replace at most this fraction of a merge's copies (rounded down).
+const SHARD_REPLACE_FRACTION = 0.5
+
+## Pet XP: treats are bought with gold; fenced pets also earn a slow trickle.
+const TREAT = {"cost": 25, "xp": 20}
+const FENCE_XP_PER_MIN = 2.0
+
+## Fence income keeps accruing while the app is closed, up to this cap.
+const OFFLINE_CAP_HOURS = 8.0
+
+const BASE_FENCE_SLOTS = 3
+## Highest star rank reachable before any Pet Lab upgrades.
+const BASE_MAX_STARS = 3
+
+## Gold upgrades. Cost of the next level = base_cost * growth ^ current level.
+const UPGRADES = {
+	"fence_slots": {"name": "Fence Slots", "desc": "+1 pet earning gold in the fence", "max": 9, "base_cost": 200, "growth": 1.7},
+	"skill_slots": {"name": "Skill Slots", "desc": "+1 equipped skill", "max": 2, "base_cost": 2000, "growth": 5.0},
+	"training_ground": {"name": "Training Ground", "desc": "+25% training XP", "max": 10, "base_cost": 300, "growth": 1.8},
+	"pet_lab": {"name": "Pet Lab", "desc": "Unlocks the next star rank, -10% merge cost", "max": 2, "base_cost": 5000, "growth": 5.0},
+}
+const UPGRADE_ORDER = ["fence_slots", "skill_slots", "training_ground", "pet_lab"]
 
 const SPECIES = {
 	"Slime": {"rarity": "Common", "hp": 45.0, "damage": 5.0, "speed": 70.0, "radius": 16.0,
@@ -72,6 +98,15 @@ const TRAIN_IDLE_XP_PER_SEC = 1.0
 
 static func training_xp_needed(level: int) -> int:
 	return 10 + 5 * level
+
+
+static func pet_xp_needed(level: int) -> int:
+	return 20 + 10 * (level - 1)
+
+
+static func upgrade_cost(upgrade_id: String, current_level: int) -> int:
+	var upgrade: Dictionary = UPGRADES[upgrade_id]
+	return int(round(float(upgrade["base_cost"]) * pow(float(upgrade["growth"]), current_level)))
 
 
 static func size_data(size_name: String) -> Dictionary:

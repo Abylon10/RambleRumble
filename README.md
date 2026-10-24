@@ -3,12 +3,12 @@
 A 2D top-down mobile game about monster hunting, skills, pet collection and base raids. It's built with **Godot 4.7** (GDScript).
 The design follows the *Ramble Rumble Game Proposal v1.1*.
 
-## Status: Phase 1, the core loop
+## Status: Phase 2, economy and pets
 
 | Feature | State |
 |---|---|
 | Starter skill choice (Flame Fist, Wind Slash, Stone Breaker, Thunder Dash) | ✅ |
-| Lobby (safe zone) with training ground, plus fence and Raid Board placeholders | ✅ |
+| Lobby (safe zone) with training ground and pet fence, plus a Raid Board placeholder | ✅ |
 | Training (tap or stand in the zone) raises training level, attack, HP and CP | ✅ |
 | One Wilderness zone with Slime (Common), Wolf (Uncommon) and Goblin (Rare) | ✅ |
 | Kill drops: gold, pets with rolled **size**, and skill boxes | ✅ |
@@ -16,7 +16,12 @@ The design follows the *Ramble Rumble Game Proposal v1.1*.
 | Best-loadout CP (unequipping can't lower it) | ✅ |
 | Touch controls: multitouch joystick, attack button, skill buttons, auto-aim | ✅ |
 | Local save (`user://save.json`) | ✅ |
-| Fence income, pet levels, star-up merging, Star Shards | Phase 2 |
+| Pet fence: fenced pets earn gold per minute and wander in the Lobby fence | ✅ |
+| Offline fence income, capped at 8 hours | ✅ |
+| Pet levels via treats (gold) and fence XP, capped by star rank | ✅ |
+| Star-up merging with duplicates; result keeps the largest size | ✅ |
+| Star Shards from releasing pets, covering up to half of a merge | ✅ |
+| Upgrades: Fence Slots, Skill Slots, Training Ground, Pet Lab (unlocks 4★/5★) | ✅ |
 | Battle pet, more drops, swarm events | Phase 3 |
 | Raids vs. bot base | Phase 4 |
 | Online async raids (Supabase backend), loss caps, shields | Phase 5 |
@@ -37,10 +42,12 @@ All art is placeholder shapes drawn in code.
 ```bash
 godot --headless --path . -s res://tests/drop_sim.gd
 godot --headless --path . res://tests/gameplay_smoke.tscn -- --test
+godot --headless --path . res://tests/economy_test.tscn -- --test
 ```
 
 - `drop_sim` rolls 200k kills per species and checks the pet and skill-box rates, the size odds and the pity limits.
 - `gameplay_smoke` plays the real scene: it picks a starter, trains, uses the portal, kills monsters with every skill, then checks save/load and that defeat returns you to the Lobby.
+- `economy_test` covers fence slots, income, the offline cap, treats and level caps, merging, Star Shards, Pet Lab limits, releasing pets, upgrades, and saving/loading the new data.
 
 Passing `-- --test` makes the game use `user://test_save.json`, so tests never touch your real save.
 
@@ -56,7 +63,8 @@ scripts/player.gd         movement, basic attack, the four skills, auto-aim
 scripts/monster.gd        wander / chase / leash AI, burn and stun
 scripts/projectile.gd     Wind Slash
 scripts/fx.gd             placeholder effects and floating text
-scripts/ui/               HUD, multitouch joystick and buttons
+scripts/fence_display.gd  fenced pets wandering in the Lobby fence
+scripts/ui/               HUD, Pets/Pet Lab and Upgrades panels, joystick, buttons
 tests/                    headless checks
 ```
 
@@ -67,4 +75,4 @@ The project uses the Compatibility renderer and landscape orientation, which sui
 
 ## Notes for online play (Phase 5)
 
-Drops, gold and CP are worked out on the device for now. Before raids can steal gold from other players, the server has to be the one that decides these values. The plan is to move `DropRoller` and the gold settlement into Supabase Edge Functions. `PlayerData` then becomes a cache of the server's copy.
+Drops, gold, CP, merges and offline income are worked out on the device for now. Offline income trusts the device clock, which players could change to earn more. Before raids can steal gold from other players, the server has to be the one that decides these values. The plan is to move `DropRoller` and the gold settlement into Supabase Edge Functions. `PlayerData` then becomes a cache of the server's copy.

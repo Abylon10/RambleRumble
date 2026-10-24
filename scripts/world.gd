@@ -1,6 +1,6 @@
 extends Node2D
-## Builds the Phase 1 world in code: the Lobby plot (safe zone with training,
-## a fence placeholder and a Raid Board placeholder) and one Wilderness zone.
+## Builds the world in code: the Lobby plot (safe zone with training, the pet
+## fence and a Raid Board placeholder) and one Wilderness zone.
 
 const HudScript = preload("res://scripts/ui/hud.gd")
 
@@ -23,7 +23,6 @@ var monsters: Node2D
 var in_wilderness := false
 
 var _in_training := false
-var _idle_train_acc := 0.0
 var _spawn_timer := 0.0
 var _rng := RandomNumberGenerator.new()
 
@@ -36,6 +35,10 @@ func _ready() -> void:
 	_build_zone(TRAINING_RECT, func(entered): _set_training(entered))
 	_build_portal(LOBBY_PORTAL, func(): _teleport(WILD_SPAWN, true))
 	_build_portal(WILD_PORTAL, func(): _teleport(LOBBY_SPAWN, false))
+
+	var fence := FenceDisplay.new()
+	fence.area = FENCE_RECT
+	add_child(fence)
 
 	monsters = Node2D.new()
 	add_child(monsters)
@@ -53,10 +56,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if _in_training:
-		_idle_train_acc += GameConfig.TRAIN_IDLE_XP_PER_SEC * delta
-		if _idle_train_acc >= 1.0:
-			PlayerData.add_training_xp(int(_idle_train_acc))
-			_idle_train_acc -= int(_idle_train_acc)
+		PlayerData.train(GameConfig.TRAIN_IDLE_XP_PER_SEC * delta)
 
 	_spawn_timer -= delta
 	if _spawn_timer <= 0.0:
@@ -149,7 +149,7 @@ func _set_training(active: bool) -> void:
 
 
 func _on_train_pressed() -> void:
-	PlayerData.add_training_xp(GameConfig.TRAIN_TAP_XP)
+	PlayerData.train(GameConfig.TRAIN_TAP_XP)
 	Fx.spawn(self, TRAINING_RECT.get_center(), {"kind": "ring", "radius": 50.0, "color": Color(0.5, 0.9, 1.0), "duration": 0.25})
 
 
@@ -230,7 +230,7 @@ func _draw() -> void:
 		draw_rect(Rect2(x - 4, FENCE_RECT.position.y - 4, 8, 14), Color(0.55, 0.38, 0.22))
 		draw_rect(Rect2(x - 4, FENCE_RECT.end.y - 10, 8, 14), Color(0.55, 0.38, 0.22))
 	draw_rect(FENCE_RECT, Color(0.55, 0.38, 0.22), false, 3.0)
-	draw_string(font, FENCE_RECT.position + Vector2(0, -12), "PET FENCE  (Phase 2)", HORIZONTAL_ALIGNMENT_CENTER, FENCE_RECT.size.x, 20)
+	draw_string(font, FENCE_RECT.position + Vector2(0, -12), "PET FENCE", HORIZONTAL_ALIGNMENT_CENTER, FENCE_RECT.size.x, 20)
 
 	# Raid Board placeholder.
 	draw_rect(Rect2(RAID_BOARD_POS - Vector2(80, 30), Vector2(160, 60)), Color(0.35, 0.22, 0.15))
