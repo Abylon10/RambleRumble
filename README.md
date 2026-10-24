@@ -10,11 +10,14 @@ There's no online play, no multiplayer and no raids. Saves stay on the device.
 |---|---|
 | **Story:** Prologue intro, then Chapter 1 *A Rambler's Beginning* and Chapter 2 *The First Companion*, given by Garrick in Hearthwood Village | ✅ |
 | Quest tracker, dialogue box, quest giver with `!`/`?` markers, scripted swarm of red-streaked slimes | ✅ |
-| **Chapter maps (Alien Creeps style):** a road of 10 stage circles per chapter; tap one to play it on its own page | ✅ |
+| **World map:** the chapters as floating islands (Chapters 3-4 shown locked) | ✅ |
+| **Chapter maps (Alien Creeps style):** painted map with 10 stage markers, stage cards with stars, difficulty tabs (Hard/Nightmare locked) | ✅ |
+| **Stage preparation:** stage info (recommended CP, main enemies, drops), party, rewards, **Start Battle** and **Sweep** (3-star stages) | ✅ |
+| **Battle HUD:** objectives, 3:00 timer, pause, x2 speed, player HP/energy panel, numbered skill slots, enemy level tags | ✅ |
 | **Chapter 1 Whispering Plains** (Crimson Fang boss) and **Chapter 2 Verdant Forest** (Elderwood Guardian boss), 20 stages | ✅ |
 | **Isometric stages (Final Fantasy Tactics look):** long strips with raised tiles, cliffs, rivers, bridges, waterfalls; enemy groups along the road; defeat all and reach the flag | ✅ |
 | **Every stage has a treasure chest and a puzzle chest.** Puzzles rotate: Rune Plates, Braziers, Levers, Echo Crystals | ✅ |
-| Stars (1–3 by HP left), first-clear rewards, half rewards on replays, stages unlock in order | ✅ |
+| Stars: clear, clear within 3:00, finish above half HP; first-clear rewards, half rewards on replays, stages unlock in order | ✅ |
 | **Materials** from monsters and chests; **Market** in Hearthwood to buy potions, tonics and skill boxes and sell materials | ✅ |
 | Character creation: male/female + one of four awakening stones (starter skill), which sets your class lineage | ✅ |
 | **Character level 1–200** from kill and quest XP, with 10 ranks (Novice to Ascended) | ✅ |
@@ -65,7 +68,7 @@ godot --headless --path . res://tests/PuzzleTest.tscn -- --test
 
 - `DropSim` checks drop rates, size odds and pity limits over 200k kills.
 - `EconomyTest` covers the fence, income, the offline cap, treats, merging, Star Shards, the Pet Lab, releasing Echoes and upgrades.
-- `GameplaySmoke` plays the real pages: village (training, Upgrade Station, Market), gate → chapter map → stage 1-1 (combat, treasure chest, puzzle chest, goal flag, stars, unlocks), a defeat with a potion, and Chapter 2's boss stage.
+- `GameplaySmoke` plays the real pages: village (training, Upgrade Station, Market), gate → world map → chapter map → stage prep → stage 1-1 (combat, treasure chest, puzzle chest, goal flag, stars, unlocks), sweeping, star rules, a defeat with a potion, and Chapter 2's boss stage.
 - `PuzzleTest` solves every puzzle kind, checks wrong moves reset, and checks every stage map keeps its road, chests and puzzle reachable.
 - `ProgressionTest` covers levels and slots, lineages and classes, skill boxes and mastery, energy, each Ember skill, the battle companion, the **whole Chapter 1–2 quest line** and save migration.
 
@@ -105,6 +108,8 @@ Adding a skill means adding one line to `SkillCatalog` with an existing archetyp
 Skills without their own icon use their lineage starter's icon.
 
 `tools/cut_monsters.py` cuts the monsters out of `art/source/monster_bestiary.png` and `monster_catalog.png` into `art/monsters/<name>.png` (background removed, shrunk to native pixel size). Run it with `py -3 tools/cut_monsters.py` (needs Pillow and NumPy). A species without a file there falls back to its code-drawn sprite.
+
+`tools/cut_ui.py` cuts the world map, both chapter maps and the reward icons out of `art/source/ui_mockup.webp` into `art/ui/`. The Chapter 2 map is enlarged from its small world-map island, so it is softer than Chapter 1's.
 To use proper sprite sheets later, replace the strips and update `manifest.json`. No code changes are needed.
 
 ## Exporting to Android

@@ -4,15 +4,15 @@ using Godot;
 namespace RambleRumble;
 
 /// <summary>
-/// Root of the game: shows one page at a time (Hearthwood Village, a chapter
-/// map, or a single stage battlefield) and frees the previous one, so only
+/// Root of the game: shows one page at a time (Hearthwood Village, the world
+/// map, a chapter map, or a single stage battlefield) and frees the previous one, so only
 /// what's on screen is ever loaded.
 /// </summary>
 public partial class Game : Node
 {
     public static Game Instance { get; private set; } = null!;
 
-    /// <summary>The page on screen: a <see cref="World"/>, <see cref="ChapterMapPage"/> or <see cref="StagePage"/>.</summary>
+    /// <summary>The page on screen: a <see cref="World"/>, <see cref="WorldMapPage"/>, <see cref="ChapterMapPage"/> or <see cref="StagePage"/>.</summary>
     public Node? Page { get; private set; }
 
     /// <summary>Raised after a new page enters the tree (tests wait on this).</summary>
@@ -24,6 +24,8 @@ public partial class Game : Node
 
     /// <param name="fromGate">Arrive at the village gate (returning from the maps) instead of the spawn point.</param>
     public void ShowVillage(bool fromGate = false) => Swap(new World { ArriveAtGate = fromGate });
+
+    public void ShowWorldMap() => Swap(new WorldMapPage());
 
     public void ShowChapterMap(int chapter) => Swap(new ChapterMapPage { Chapter = chapter });
 

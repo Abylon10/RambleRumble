@@ -7,7 +7,7 @@ namespace RambleRumble.Tests;
 /// Opens the game in a given state and saves a screenshot (needs a window, not --headless).
 /// Run: godot --path . res://tests/Screenshot.tscn -- --test &lt;out.png&gt; [options]
 /// Options: new (character creation), garrick, pets, skills, upgrades, market,
-/// map=1|2, stage=&lt;id&gt; (add "puzzle" to stand by the puzzle, "goal" by the flag), progress (cleared stages).
+/// world, map=1|2 [select=<id>], stage=&lt;id&gt; (add "puzzle" to stand by the puzzle, "goal" by the flag), progress (cleared stages).
 /// </summary>
 public partial class Screenshot : TestScene
 {
@@ -59,6 +59,8 @@ public partial class Screenshot : TestScene
                 village.Hud.MarketPanel.ShowTab(selling: true);
         }
 
+        if (args.Contains("world"))
+            await Go<WorldMapPage>(() => Game.Instance.ShowWorldMap());
         if (Arg("map") != "")
         {
             if (Arg("map") == "2")

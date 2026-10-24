@@ -39,9 +39,18 @@ public partial class StagePage : Node2D
 
     public event Action<StageOutcome>? Finished;
 
+    /// <summary>Seconds for the "clear within" star.</summary>
+    public const int TimeLimit = 180;
+    /// <summary>Battle time so far (game time, so x2 speed counts double).</summary>
+    public float Elapsed { get; private set; }
+
     private readonly List<Monster> _monsters = new();
     private readonly RandomNumberGenerator _rng = new();
     private Label _banner = null!;
+    private Label _timerLabel = null!;
+    private Button _speedButton = null!;
+    private PanelContainer _pausePanel = null!;
+    private readonly List<Label> _objectiveLines = new();
     private Button _potionButton = null!;
     private Button _tonicButton = null!;
     private PanelContainer _resultPanel = null!;
@@ -112,6 +121,8 @@ public partial class StagePage : Node2D
         _goalToastCooldown -= (float)delta;
         if (Outcome != StageOutcome.Playing)
             return;
+        Elapsed += (float)delta;
+        UpdateObjectives();
         if (Input.IsActionJustPressed("use_potion"))
             UsePotion();
         if (Input.IsActionJustPressed("use_tonic"))
@@ -181,6 +192,7 @@ public partial class StagePage : Node2D
         monster.Setup(species, at, Player, $"stage-{Stage.Id}");
         monster.ApplyScale(Stage.Scale);
         monster.Corrupted = Stage.Corrupted;
+        monster.ShowLevelTag = true;
         if (eliteTitle != null)
             monster.MakeElite(eliteTitle, hpMult: 2.5f, sizeMult: 1.3f);
         if (boss)
@@ -230,15 +242,17 @@ public partial class StagePage : Node2D
 
     // --- Results ----------------------------------------------------------------
 
-    /// <summary>3 stars above 60% HP, 2 above 25%, otherwise 1.</summary>
-    public static int StarsFor(float hpRatio) => hpRatio >= 0.6f ? 3 : hpRatio >= 0.25f ? 2 : 1;
+    /// <summary>The mockup's objectives: one star for clearing, one for clearing in time, one for finishing above half HP.</summary>
+    public static int StarsFor(float elapsed, float hpRatio) => 1 + (elapsed <= TimeLimit ? 1 : 0) + (hpRatio >= 0.5f ? 1 : 0);
 
     private void Win()
     {
         Outcome = StageOutcome.Victory;
+        Engine.TimeScale = 1.0;
         Player.InSafeZone = true;
         Player.PlayOneShot("victory");
-        int stars = StarsFor(Player.Hp / Data.MaxHp);
+        int stars = StarsFor(Elapsed, Player.Hp / Data.MaxHp);
+        UpdateObjectives();
         Reward = Data.CompleteStage(Stage, stars);
         if (Reward.SkillLearned != "")
             KillFeedback.ShowSkillBox(Hud, Reward.SkillLearned, Reward.SkillIsNew);
@@ -268,6 +282,7 @@ public partial class StagePage : Node2D
         if (Outcome != StageOutcome.Playing)
             return;
         Outcome = StageOutcome.Defeat;
+        Engine.TimeScale = 1.0;
         Player.InSafeZone = true;
         foreach (var monster in AliveMonsters)
             monster.ProcessMode = ProcessModeEnum.Disabled;
@@ -321,65 +336,137 @@ public partial class StagePage : Node2D
 
     private void BuildStageUi()
     {
-        var ui = new CanvasLayer { Layer = 5 };
+        var ui = new CanvasLayer { Layer = 5, ProcessMode = ProcessModeEnum.Always };
         AddChild(ui);
-        var root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore, Theme = new Theme { DefaultFontSize = 20 } };
+        var root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore, Theme = UiKit.GameTheme() };
         root.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         ui.AddChild(root);
+        Hud.UseStageLayout();
 
-        var leave = new Button { Text = "◀ Map", CustomMinimumSize = new Vector2(110, 48) };
-        UiKit.Place(leave, new Vector2(0.5f, 0), new Vector2(-55, 16), new Vector2(110, 48));
+        // Top left: back to the map, chapter and stage, then the star objectives.
+        var titleRow = new HBoxContainer();
+        titleRow.AddThemeConstantOverride("separation", 8);
+        UiKit.Place(titleRow, Vector2.Zero, new Vector2(16, 14), new Vector2(380, 64));
+        root.AddChild(titleRow);
+        var leave = new Button { Text = "←", CustomMinimumSize = new Vector2(60, 60) };
+        leave.AddThemeFontSizeOverride("font_size", 28);
         leave.Pressed += () => Game.Instance?.ShowChapterMap(Stage.Chapter);
-        root.AddChild(leave);
-        // Stage status sits where the story quest tracker normally is.
-        Hud.SetQuestTrackerVisible(false);
-        var bannerPanel = new PanelContainer();
-        bannerPanel.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(StageCatalog.Chapter(Stage.Chapter).Accent));
-        UiKit.Place(bannerPanel, new Vector2(1, 0), new Vector2(-406, 84), new Vector2(390, 0));
-        root.AddChild(bannerPanel);
-        _banner = UiKit.MakeLabel("", 16, new Color(1f, 0.95f, 0.8f));
-        bannerPanel.AddChild(_banner);
+        titleRow.AddChild(leave);
+        var titlePanel = new PanelContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        titlePanel.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(margin: 6f));
+        titleRow.AddChild(titlePanel);
+        var titles = new VBoxContainer();
+        titles.AddThemeConstantOverride("separation", -2);
+        titlePanel.AddChild(titles);
+        titles.AddChild(UiKit.MakeLabel($"Chapter {Stage.Chapter} - Stage {Stage.Number}", 22, UiKit.Cream));
+        titles.AddChild(UiKit.MakeLabel(Stage.Name, 16, UiKit.Muted));
 
-        var items = new HBoxContainer();
-        items.AddThemeConstantOverride("separation", 10);
-        UiKit.Place(items, new Vector2(0.5f, 1f), new Vector2(-150, -70), new Vector2(300, 54));
-        root.AddChild(items);
-        _potionButton = new Button { CustomMinimumSize = new Vector2(140, 54) };
+        var objectives = UiKit.TitledPanel(root, "Objectives", out var objectivesPanel);
+        UiKit.Place(objectivesPanel, Vector2.Zero, new Vector2(16, 86), new Vector2(300, 0));
+        foreach (var text in new[] { "Clear the stage", $"Clear within {TimeLimit / 60}:00", "Finish above half HP" })
+        {
+            var line = UiKit.MakeLabel($"★  {text}", 17, UiKit.Cream);
+            objectives.AddChild(line);
+            _objectiveLines.Add(line);
+        }
+        _banner = UiKit.MakeLabel("", 15, UiKit.Muted);
+        objectives.AddChild(_banner);
+
+        // Top right: timer, pause, double speed.
+        var timerPanel = new PanelContainer();
+        timerPanel.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(margin: 8f));
+        UiKit.Place(timerPanel, new Vector2(1, 0), new Vector2(-300, 16), new Vector2(150, 56));
+        root.AddChild(timerPanel);
+        _timerLabel = UiKit.MakeLabel("", 26, UiKit.Cream);
+        _timerLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        timerPanel.AddChild(_timerLabel);
+        var pause = new Button { Text = "❚❚", CustomMinimumSize = new Vector2(60, 56) };
+        UiKit.Place(pause, new Vector2(1, 0), new Vector2(-142, 16), new Vector2(60, 56));
+        pause.Pressed += () => SetPaused(true);
+        root.AddChild(pause);
+        _speedButton = new Button { Text = "x2", CustomMinimumSize = new Vector2(60, 56), ToggleMode = true };
+        UiKit.Place(_speedButton, new Vector2(1, 0), new Vector2(-76, 16), new Vector2(60, 56));
+        _speedButton.Toggled += fast => Engine.TimeScale = fast && Outcome == StageOutcome.Playing ? 2.0 : 1.0;
+        root.AddChild(_speedButton);
+
+        // Potion and tonic sit just above the Attack button.
+        _potionButton = new Button { CustomMinimumSize = new Vector2(66, 60) };
+        _potionButton.AddThemeFontSizeOverride("font_size", 14);
+        UiKit.Place(_potionButton, new Vector2(1, 1), new Vector2(-188, -262), new Vector2(66, 60));
         _potionButton.Pressed += UsePotion;
-        items.AddChild(_potionButton);
-        _tonicButton = new Button { CustomMinimumSize = new Vector2(140, 54) };
+        root.AddChild(_potionButton);
+        _tonicButton = new Button { CustomMinimumSize = new Vector2(66, 60) };
+        _tonicButton.AddThemeFontSizeOverride("font_size", 14);
+        UiKit.Place(_tonicButton, new Vector2(1, 1), new Vector2(-114, -262), new Vector2(66, 60));
         _tonicButton.Pressed += UseTonic;
-        items.AddChild(_tonicButton);
+        root.AddChild(_tonicButton);
         UpdateItemButtons();
 
+        _pausePanel = new PanelContainer { Visible = false };
+        _pausePanel.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(UiKit.Gold, 3, 8, 20f));
+        UiKit.Place(_pausePanel, new Vector2(0.5f, 0.5f), new Vector2(-180, -130), new Vector2(360, 260));
+        root.AddChild(_pausePanel);
+        var pauseBox = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        pauseBox.AddThemeConstantOverride("separation", 14);
+        _pausePanel.AddChild(pauseBox);
+        var pausedTitle = UiKit.MakeLabel("Paused", 32, UiKit.Cream);
+        pausedTitle.HorizontalAlignment = HorizontalAlignment.Center;
+        pauseBox.AddChild(pausedTitle);
+        var resume = UiKit.GoldButton("Resume", new Vector2(0, 60), 24);
+        resume.Pressed += () => SetPaused(false);
+        pauseBox.AddChild(resume);
+        var retreat = new Button { Text = "Retreat to map", CustomMinimumSize = new Vector2(0, 54) };
+        retreat.Pressed += () =>
+        {
+            SetPaused(false);
+            Game.Instance?.ShowChapterMap(Stage.Chapter);
+        };
+        pauseBox.AddChild(retreat);
+
         _resultPanel = new PanelContainer { Visible = false };
-        _resultPanel.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.9f, 0.75f, 0.35f), 3));
-        UiKit.Place(_resultPanel, new Vector2(0.5f, 0.5f), new Vector2(-280, -150), new Vector2(560, 300));
+        _resultPanel.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(UiKit.Gold, 3, 8, 20f));
+        UiKit.Place(_resultPanel, new Vector2(0.5f, 0.5f), new Vector2(-300, -170), new Vector2(600, 340));
         root.AddChild(_resultPanel);
         var box = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         box.AddThemeConstantOverride("separation", 12);
         _resultPanel.AddChild(box);
-        _resultTitle = UiKit.MakeLabel("", 34);
+        _resultTitle = UiKit.MakeLabel("", 36);
         _resultTitle.HorizontalAlignment = HorizontalAlignment.Center;
         box.AddChild(_resultTitle);
-        _resultBody = UiKit.MakeLabel("", 20);
+        _resultBody = UiKit.MakeLabel("", 20, UiKit.Cream);
         _resultBody.HorizontalAlignment = HorizontalAlignment.Center;
         _resultBody.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         box.AddChild(_resultBody);
         var buttons = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         buttons.AddThemeConstantOverride("separation", 16);
         box.AddChild(buttons);
-        _resultPrimary = new Button { CustomMinimumSize = new Vector2(180, 54) };
-        _resultSecondary = new Button { CustomMinimumSize = new Vector2(140, 54) };
+        _resultPrimary = UiKit.GoldButton("", new Vector2(220, 58), 22);
+        _resultSecondary = new Button { CustomMinimumSize = new Vector2(150, 58) };
         buttons.AddChild(_resultPrimary);
         buttons.AddChild(_resultSecondary);
     }
 
+    /// <summary>Pauses the battle (the stage UI keeps working) or resumes it.</summary>
+    public void SetPaused(bool paused)
+    {
+        if (paused && Outcome != StageOutcome.Playing)
+            return;
+        GetTree().Paused = paused;
+        _pausePanel.Visible = paused;
+    }
+
+    public override void _ExitTree()
+    {
+        // Never leave the game paused or fast-forwarded after the stage.
+        GetTree().Paused = false;
+        Engine.TimeScale = 1.0;
+    }
+
     private void UpdateItemButtons()
     {
-        _potionButton.Text = $"Potion ×{Data.ItemCount("health_potion")}";
+        _potionButton.Text = $"Potion\n×{Data.ItemCount("health_potion")}";
         _potionButton.Disabled = Data.ItemCount("health_potion") == 0;
-        _tonicButton.Text = $"Tonic ×{Data.ItemCount("energy_tonic")}";
+        _tonicButton.Text = $"Tonic\n×{Data.ItemCount("energy_tonic")}";
         _tonicButton.Disabled = Data.ItemCount("energy_tonic") == 0;
     }
 
@@ -390,7 +477,20 @@ public partial class StagePage : Node2D
         string goal = EnemiesLeft > 0 ? $"Enemies left {EnemiesLeft}" : "Reach the flag!";
         string treasure = Data.ChestOpened(Stage.Id, PlayerData.TreasureBit) ? "✓" : "?";
         string puzzle = Data.ChestOpened(Stage.Id, PlayerData.PuzzleBit) ? "✓" : Puzzle.IsSolved ? "open it" : "?";
-        _banner.Text = $"{Stage.Title}\n{goal}   •   Treasure {treasure}   •   Puzzle {puzzle}";
+        _banner.Text = $"{goal}\nTreasure {treasure}   •   Puzzle {puzzle}";
+    }
+
+    /// <summary>Lights each objective's star gold while it's still being met (the first once you win).</summary>
+    private void UpdateObjectives()
+    {
+        if (_objectiveLines.Count < 3)
+            return;
+        float left = Mathf.Max(0f, TimeLimit - Elapsed);
+        _timerLabel.Text = $"⏱ {(int)left / 60:00}:{(int)left % 60:00}";
+        _timerLabel.AddThemeColorOverride("font_color", left <= 0f ? new Color(1f, 0.45f, 0.4f) : UiKit.Cream);
+        var met = new[] { Outcome == StageOutcome.Victory, Elapsed <= TimeLimit, Player.Hp >= Data.MaxHp * 0.5f };
+        for (int k = 0; k < 3; k++)
+            _objectiveLines[k].AddThemeColorOverride("font_color", met[k] ? new Color(1f, 0.82f, 0.3f) : UiKit.Muted);
     }
 
     private void ShowResult(string title, string body, Color colour, string primary, Action onPrimary, string secondary, Action onSecondary)

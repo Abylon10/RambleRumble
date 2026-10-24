@@ -63,10 +63,10 @@ public record StageDef(string Id, int Chapter, int Number, string Name, string L
         .Concat(GameConfig.ChapterMaterials(Chapter)).Append("Crystal Shard").Distinct().ToArray();
 }
 
-/// <param name="Route">Stage node positions on the chapter map, 0..1 of the map area.</param>
-/// <param name="Landmarks">Landmark labels on the chapter map, 0..1 of the map area.</param>
+/// <param name="Route">Stage circle positions painted on <paramref name="MapArt"/>, 0..1 of the picture.</param>
+/// <param name="MapArt">The painted chapter map (cut from the UI mockup by tools/cut_ui.py).</param>
 public record ChapterMapDef(int Number, string Region, string Blurb, Color Ground, Color GroundDark, Color Accent,
-    Vector2[] Route, (string Name, Vector2 At)[] Landmarks, StageDef[] Stages);
+    Vector2[] Route, string MapArt, StageDef[] Stages);
 
 /// <summary>
 /// Chapter maps in the Alien Creeps style: a winding road of 10 stages per
@@ -83,11 +83,10 @@ public static class StageCatalog
             new Color(0.47f, 0.70f, 0.34f), new Color(0.36f, 0.56f, 0.27f), new Color(0.95f, 0.85f, 0.35f),
             new Vector2[]
             {
-                new(0.08f, 0.82f), new(0.20f, 0.70f), new(0.27f, 0.50f), new(0.17f, 0.32f), new(0.31f, 0.17f),
-                new(0.48f, 0.27f), new(0.56f, 0.47f), new(0.70f, 0.58f), new(0.82f, 0.40f), new(0.90f, 0.18f),
+                new(0.159f, 0.310f), new(0.255f, 0.342f), new(0.368f, 0.226f), new(0.448f, 0.365f), new(0.625f, 0.423f),
+                new(0.360f, 0.710f), new(0.453f, 0.839f), new(0.566f, 0.800f), new(0.682f, 0.768f), new(0.871f, 0.803f),
             },
-            new[] { ("Slime Fields", new Vector2(0.12f, 0.56f)), ("Traveler's Camp", new Vector2(0.42f, 0.09f)),
-                ("Old Windmill", new Vector2(0.62f, 0.27f)), ("Broken Bridge", new Vector2(0.80f, 0.66f)) },
+            "res://art/ui/chapter1_map.png",
             new StageDef[]
             {
                 new("1-1", 1, 1, "Greenfield Road", "Slime Fields", StageLayout.Fields, 1, 1.00f,
@@ -122,11 +121,10 @@ public static class StageCatalog
             new Color(0.25f, 0.48f, 0.26f), new Color(0.17f, 0.36f, 0.19f), new Color(0.55f, 0.95f, 0.65f),
             new Vector2[]
             {
-                new(0.08f, 0.24f), new(0.20f, 0.40f), new(0.14f, 0.63f), new(0.29f, 0.80f), new(0.43f, 0.63f),
-                new(0.48f, 0.40f), new(0.62f, 0.24f), new(0.75f, 0.42f), new(0.70f, 0.67f), new(0.88f, 0.80f),
+                new(0.220f, 0.396f), new(0.349f, 0.268f), new(0.523f, 0.346f), new(0.777f, 0.275f), new(0.840f, 0.429f),
+                new(0.657f, 0.625f), new(0.574f, 0.693f), new(0.491f, 0.757f), new(0.311f, 0.614f), new(0.323f, 0.839f),
             },
-            new[] { ("Hidden Grove", new Vector2(0.10f, 0.86f)), ("Waterfall", new Vector2(0.38f, 0.30f)),
-                ("Forest Ruin", new Vector2(0.62f, 0.10f)), ("Ancient Tree", new Vector2(0.86f, 0.55f)) },
+            "res://art/ui/chapter2_map.png",
             new StageDef[]
             {
                 new("2-1", 2, 1, "Forest Edge", "Forest Edge", StageLayout.ForestEdge, 11, 1.25f,

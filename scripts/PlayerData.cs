@@ -609,6 +609,26 @@ public partial class PlayerData : Node
         return new StageReward(gold, xp, first, stars, skill, isNew);
     }
 
+    /// <summary>
+    /// Sweep: replays a stage you've 3-starred instantly. Gives the replay reward
+    /// and rolls each enemy's material drop as if you'd fought them. Returns null
+    /// (and changes nothing) if the stage isn't 3-starred yet.
+    /// </summary>
+    public (StageReward Reward, List<string> Materials)? SweepStage(StageDef stage)
+    {
+        if (StageStars.GetValueOrDefault(stage.Id) < 3)
+            return null;
+        var materials = new List<string>();
+        var enemies = stage.Waves.SelectMany(w => w.Enemies.SelectMany(e => Enumerable.Repeat(e.Species, e.Count)))
+            .Concat(stage.Waves.Where(w => w.Leader != "").Select(w => w.Leader));
+        foreach (var species in enemies)
+            if (Rng.Randf() < GameConfig.MaterialDropChance)
+                materials.Add(GameConfig.MaterialFrom(species));
+        foreach (var name in materials)
+            AddMaterial(name, 1);
+        return (CompleteStage(stage, 3), materials);
+    }
+
     // --- Treasure, materials and the Market -------------------------------------
 
     public const int TreasureBit = 1;

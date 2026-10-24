@@ -6,54 +6,83 @@ using RambleRumble.UI;
 namespace RambleRumble;
 
 /// <summary>
-/// A chapter's stage map in the Alien Creeps style: a road winding across the
-/// region past its landmarks, with a circle for each of the 10 stages. Tap a
-/// stage to see its details and start it on its own page.
+/// A chapter's stage map, laid out like the UI mockup: the painted chapter map
+/// with a marker on each of its 10 stage circles, a row of stage cards
+/// underneath, and difficulty tabs. Tapping a stage opens its preparation
+/// panel; Start Battle plays it on its own page.
 /// </summary>
 public partial class ChapterMapPage : CanvasLayer
 {
-    private const float TopBar = 76f;
+    private const float TopBar = 72f;
+    private const float CardsHeight = 204f;
 
     public int Chapter { get; init; } = 1;
     public ChapterMapDef Def => StageCatalog.Chapter(Chapter);
     public StageDef? Selected { get; private set; }
+    public StagePrepPanel Prep { get; private set; } = null!;
 
-    private Control _mapArea = null!;
+    private TextureRect _map = null!;
+    private Texture2D? _mapArt;
     private readonly List<StageNodeButton> _nodes = new();
-    private PanelContainer _info = null!;
-    private Label _infoTitle = null!;
-    private Label _infoBody = null!;
-    private Button _startButton = null!;
+    private readonly List<StageCard> _cards = new();
+    private Label _toast = null!;
+    private float _toastTime;
 
     private static PlayerData Data => PlayerData.Instance;
 
     public override void _Ready()
     {
         World.SetupInput();
-        var root = new Control { Theme = new Theme { DefaultFontSize = 20 } };
+        var root = new Control { Theme = UiKit.GameTheme() };
         root.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(root);
+        var backdrop = new ColorRect { Color = new Color(0.05f, 0.07f, 0.11f) };
+        backdrop.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(backdrop);
 
-        _mapArea = new ChapterMapArt { Def = Def };
-        _mapArea.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        _mapArea.OffsetTop = TopBar;
-        root.AddChild(_mapArea);
-        _mapArea.Resized += PlaceNodes;
-
+        _mapArt = UiKit.Texture(Def.MapArt);
+        _map = new TextureRect
+        {
+            Texture = _mapArt,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+        };
+        _map.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        _map.OffsetTop = TopBar + 6;
+        _map.OffsetBottom = -CardsHeight - 6;
+        root.AddChild(_map);
         foreach (var stage in Def.Stages)
         {
             var node = new StageNodeButton { Stage = stage };
             node.Pressed += () => Select(stage);
-            _mapArea.AddChild(node);
+            root.AddChild(node);
             _nodes.Add(node);
         }
+        _map.Resized += PlaceNodes;
+        BuildChapterArrows(root);
 
         BuildTopBar(root);
-        BuildInfo(root);
+        BuildCards(root);
+        _toast = UiKit.MakeLabel("", 22, UiKit.Cream);
+        _toast.HorizontalAlignment = HorizontalAlignment.Center;
+        _toast.AddThemeColorOverride("font_outline_color", Colors.Black);
+        _toast.AddThemeConstantOverride("outline_size", 8);
+        UiKit.Place(_toast, new Vector2(0.5f, 0f), new Vector2(-400, TopBar + 14), new Vector2(800, 40));
+        root.AddChild(_toast);
+
+        Prep = new StagePrepPanel { MapArt = _mapArt };
+        Prep.StartPressed += _ => StartSelected();
+        root.AddChild(Prep);
         PlaceNodes();
 
-        // Open on the next stage to play.
-        Select(Def.Stages.FirstOrDefault(s => Data.IsStageUnlocked(s) && !Data.StageCleared(s.Id)) ?? Def.Stages[0]);
+        // Highlight the next stage to play.
+        Select(Def.Stages.FirstOrDefault(s => Data.IsStageUnlocked(s) && !Data.StageCleared(s.Id)) ?? Def.Stages[0], open: false);
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_toastTime > 0f && (_toastTime -= (float)delta) <= 0f)
+            _toast.Text = "";
     }
 
     /// <summary>Starts the selected stage if it's unlocked.</summary>
@@ -65,120 +94,108 @@ public partial class ChapterMapPage : CanvasLayer
         return true;
     }
 
-    public void Select(StageDef stage)
+    /// <summary>Highlights a stage's marker and card and (by default) opens its preparation panel.</summary>
+    public void Select(StageDef stage, bool open = true)
     {
         Selected = stage;
         foreach (var node in _nodes)
             node.SetSelected(node.Stage == stage);
-
-        bool unlocked = Data.IsStageUnlocked(stage);
-        int stars = Data.StageStars.GetValueOrDefault(stage.Id);
-        var enemies = stage.Waves.SelectMany(w => w.Enemies).GroupBy(e => e.Species)
-            .Select(g => $"{g.Key} ×{g.Sum(e => e.Count)}").ToList();
-        if (stage.Waves.Any(w => w.Leader != ""))
-            enemies.Add("Swarm Leader");
-        if (stage.IsBoss)
-            enemies.Add($"BOSS {stage.Boss}");
-
-        _infoTitle.Text = $"{(stage.IsBoss ? "BOSS  " : "")}Stage {stage.Title}   " +
-            (stars > 0 ? new string('★', stars) + new string('☆', 3 - stars) : "");
-        _infoTitle.AddThemeColorOverride("font_color", stage.IsBoss ? new Color(1f, 0.5f, 0.45f) : new Color(1f, 0.9f, 0.6f));
-        string treasure = Data.ChestOpened(stage.Id, PlayerData.TreasureBit) ? "found" : "hidden";
-        string puzzle = Data.ChestOpened(stage.Id, PlayerData.PuzzleBit) ? "solved" : stage.Puzzle switch
-        {
-            PuzzleKind.RunePlates => "Rune Plates",
-            PuzzleKind.Braziers => "Braziers",
-            PuzzleKind.Levers => "Levers",
-            _ => "Echo Crystals",
-        };
-        int cp = Data.CombatPower();
-        _infoBody.Text =
-            (stage.Story != "" ? $"{stage.Story}\n" : "") +
-            $"{stage.Landmark}  •  Recommended CP {stage.RecommendedCp} (yours {cp})  •  Treasure: {treasure}  •  Puzzle: {puzzle}\n" +
-            $"Main enemies: {string.Join(", ", enemies)}\n" +
-            $"Possible drops: gold, Echoes, {string.Join(", ", stage.PossibleMaterials)}" +
-            $"\nFirst clear: {stage.Gold} gold, {stage.Xp} XP{(stage.SkillBoxFirstClear ? ", skill box" : "")}   •   Replays: half";
-        _infoBody.AddThemeColorOverride("font_color", cp >= stage.RecommendedCp ? new Color(0.9f, 0.9f, 0.88f) : new Color(1f, 0.75f, 0.65f));
-        _startButton.Disabled = !unlocked;
-        _startButton.Text = unlocked ? (stars > 0 ? "Replay" : "Start") : "Locked";
-        _info.Visible = true;
+        foreach (var card in _cards)
+            card.SetSelected(card.Stage == stage);
+        if (open)
+            Prep.Show(stage, Def.Route[stage.Number - 1]);
     }
 
+    private void Toast(string text)
+    {
+        _toast.Text = text;
+        _toastTime = 2.5f;
+    }
+
+    /// <summary>Puts each marker on its painted circle wherever the map picture ends up on screen.</summary>
     private void PlaceNodes()
     {
-        var size = _mapArea.Size;
+        if (_mapArt == null)
+            return;
+        var picture = _mapArt.GetSize();
+        float scale = Mathf.Min(_map.Size.X / picture.X, _map.Size.Y / picture.Y);
+        var origin = _map.Position + (_map.Size - picture * scale) / 2f;
         for (int k = 0; k < _nodes.Count; k++)
+            _nodes[k].Position = origin + Def.Route[k] * picture * scale - _nodes[k].Size / 2f;
+    }
+
+    private void BuildChapterArrows(Control root)
+    {
+        foreach (int step in new[] { -1, 1 })
         {
-            var at = Def.Route[k] * size;
-            _nodes[k].Position = at - _nodes[k].Size / 2f;
+            int target = Chapter + step;
+            if (target < 1 || target > StageCatalog.Chapters.Length)
+                continue;
+            var arrow = new Button { Text = step < 0 ? "❮" : "❯", CustomMinimumSize = new Vector2(52, 90) };
+            arrow.AddThemeFontSizeOverride("font_size", 34);
+            UiKit.Place(arrow, new Vector2(step < 0 ? 0 : 1, 0.5f), new Vector2(step < 0 ? 12 : -64, -120), new Vector2(52, 90));
+            arrow.Pressed += () =>
+            {
+                if (Data.IsChapterUnlocked(target))
+                    Game.Instance?.ShowChapterMap(target);
+                else
+                    Toast($"Clear Stage {target - 1}-10 to reach Chapter {target}.");
+            };
+            root.AddChild(arrow);
         }
-        _mapArea.QueueRedraw();
     }
 
     private void BuildTopBar(Control root)
     {
         var bar = new PanelContainer();
-        bar.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.55f, 0.45f, 0.3f)));
+        bar.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(radius: 0, margin: 8f));
         bar.SetAnchorsPreset(Control.LayoutPreset.TopWide);
         bar.OffsetBottom = TopBar;
         root.AddChild(bar);
         var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 14);
+        row.AddThemeConstantOverride("separation", 16);
         bar.AddChild(row);
 
-        var back = new Button { Text = "◀ Hearthwood", CustomMinimumSize = new Vector2(160, 48) };
-        back.Pressed += () => Game.Instance?.ShowVillage(fromGate: true);
+        var back = new Button { Text = "◀  Back", CustomMinimumSize = new Vector2(120, 52) };
+        back.Pressed += () => Game.Instance?.ShowWorldMap();
         row.AddChild(back);
 
-        var title = UiKit.MakeLabel($"Chapter {Chapter}  •  {Def.Region}", 26, Def.Accent);
-        title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        title.VerticalAlignment = VerticalAlignment.Center;
-        row.AddChild(title);
+        var titles = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        titles.AddThemeConstantOverride("separation", 0);
+        row.AddChild(titles);
+        titles.AddChild(UiKit.MakeLabel($"Chapter {Chapter} - {Def.Region}", 26, UiKit.Cream));
+        int earned = Def.Stages.Sum(s => Data.StageStars.GetValueOrDefault(s.Id));
+        titles.AddChild(UiKit.MakeLabel($"{Def.Blurb}   ★ {earned}/{Def.Stages.Length * 3}", 14, UiKit.Muted));
 
-        foreach (var chapter in StageCatalog.Chapters)
+        // Only Normal exists so far; the harder modes are shown locked, as in the mockup.
+        foreach (var (mode, open) in new[] { ("Normal", true), ("🔒 Hard", false), ("🔒 Nightmare", false) })
         {
-            bool open = Data.IsChapterUnlocked(chapter.Number);
-            var tab = new Button
-            {
-                Text = open ? $"Ch {chapter.Number}" : $"Ch {chapter.Number} (clear {chapter.Number - 1}-10)",
-                Disabled = !open || chapter.Number == Chapter,
-                CustomMinimumSize = new Vector2(80, 48),
-            };
-            int number = chapter.Number;
-            tab.Pressed += () => Game.Instance?.ShowChapterMap(number);
+            var tab = new Button { Text = mode, CustomMinimumSize = new Vector2(124, 52) };
+            if (open)
+                tab.AddThemeStyleboxOverride("normal", UiKit.NavyStyle(UiKit.Current, 2, margin: 8f));
+            else
+                tab.Pressed += () => Toast($"{mode[2..]} mode opens after you clear the chapter on Normal (coming later).");
             row.AddChild(tab);
         }
-
-        int earned = Def.Stages.Sum(s => Data.StageStars.GetValueOrDefault(s.Id));
-        var stats = UiKit.MakeLabel($"Lv {Data.Level}   Gold {Data.Gold}   ★ {earned}/{Def.Stages.Length * 3}", 18, new Color(1f, 0.9f, 0.55f));
-        stats.VerticalAlignment = VerticalAlignment.Center;
-        row.AddChild(stats);
     }
 
-    private void BuildInfo(Control root)
+    private void BuildCards(Control root)
     {
-        _info = new PanelContainer { Visible = false };
-        _info.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.9f, 0.75f, 0.35f)));
-        UiKit.Place(_info, new Vector2(0.5f, 1f), new Vector2(-420, -206), new Vector2(840, 192));
-        root.AddChild(_info);
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 16);
-        _info.AddChild(row);
-        var text = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        row.AddChild(text);
-        _infoTitle = UiKit.MakeLabel("", 22);
-        text.AddChild(_infoTitle);
-        _infoBody = UiKit.MakeLabel("", 15, new Color(0.9f, 0.9f, 0.88f));
-        _infoBody.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        text.AddChild(_infoBody);
-        var buttons = new VBoxContainer();
-        row.AddChild(buttons);
-        var close = new Button { Text = "✕", CustomMinimumSize = new Vector2(150, 36) };
-        close.Pressed += () => _info.Visible = false;
-        buttons.AddChild(close);
-        _startButton = new Button { CustomMinimumSize = new Vector2(150, 70) };
-        _startButton.AddThemeFontSizeOverride("font_size", 24);
-        _startButton.Pressed += () => StartSelected();
-        buttons.AddChild(_startButton);
+        var grid = new GridContainer { Columns = 5 };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 8);
+        grid.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+        grid.OffsetTop = -CardsHeight;
+        grid.OffsetBottom = -8;
+        grid.OffsetLeft = 16;
+        grid.OffsetRight = -16;
+        root.AddChild(grid);
+        foreach (var stage in Def.Stages)
+        {
+            var card = new StageCard { Stage = stage, MapArt = _mapArt, MapPoint = Def.Route[stage.Number - 1] };
+            card.Pressed += () => Select(stage);
+            grid.AddChild(card);
+            _cards.Add(card);
+        }
     }
 }

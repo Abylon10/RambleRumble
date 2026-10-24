@@ -146,12 +146,12 @@ public partial class World : Node2D
 
     // --- Village --------------------------------------------------------------
 
-    /// <summary>The gate leads to the latest chapter map you've unlocked.</summary>
+    /// <summary>The gate leads out to the world map.</summary>
     public void OpenGate()
     {
         if (!Data.HasStarter)
             return;
-        Game.Instance?.ShowChapterMap(Data.HighestUnlockedChapter());
+        Game.Instance?.ShowWorldMap();
     }
 
     private void SetTraining(bool active)

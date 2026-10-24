@@ -17,12 +17,17 @@ public partial class GameplaySmoke : TestScene
         Data.ResetProgress();
         var village = await LoadGame();
         await CheckVillage(village);
-        var map = await Go<ChapterMapPage>(village.OpenGate);
-        Check(map.Chapter == 1 && map.Selected?.Id == "1-1", "the gate opens Chapter 1 with stage 1-1 selected");
+        var world = await Go<WorldMapPage>(village.OpenGate);
+        Check(!world.OpenChapter(2), "Chapter 2's island is locked at first");
+        var map = await Go<ChapterMapPage>(() => world.OpenChapter(1));
+        Check(map.Chapter == 1 && map.Selected?.Id == "1-1", "the gate leads via the world map to Chapter 1 with 1-1 selected");
         Check(!Data.IsStageUnlocked(StageCatalog.Get("1-2")), "stage 1-2 starts locked");
+        map.Select(StageCatalog.Get("1-1"));
+        Check(map.Prep.Visible, "choosing a stage opens its preparation panel");
 
         var stage = await Go<StagePage>(() => map.StartSelected());
         await CheckStage(stage);
+        await CheckSweep();
 
         map = await Go<ChapterMapPage>(() => Game.Instance.ShowChapterMap(1));
         map.Select(StageCatalog.Get("1-2"));
@@ -151,5 +156,18 @@ public partial class GameplaySmoke : TestScene
         var stage = await Go<StagePage>(() => map.StartSelected());
         Check(stage.AliveMonsters.Any(m => m.IsBoss && m.SpeciesId == "Elderwood Guardian"), "stage 2-10 has the Elderwood Guardian boss");
         Check(stage.Stage.Puzzle == PuzzleKind.Braziers, "stage 10 uses the Braziers puzzle");
+    }
+
+    private async System.Threading.Tasks.Task CheckSweep()
+    {
+        var map = await Go<ChapterMapPage>(() => Game.Instance.ShowChapterMap(1));
+        var stage11 = StageCatalog.Get("1-1");
+        int gold = Data.Gold;
+        Check(Data.SweepStage(StageCatalog.Get("1-2")) == null, "can't sweep a stage without 3 stars");
+        var swept = Data.SweepStage(stage11);
+        Check(swept != null && !swept.Value.Reward.FirstClear && Data.Gold == gold + stage11.Gold / 2,
+            $"sweeping a 3-star stage gives the replay reward (+{Data.Gold - gold} gold)");
+        Check(StagePage.StarsFor(200f, 1f) == 2 && StagePage.StarsFor(30f, 0.4f) == 2 && StagePage.StarsFor(30f, 0.9f) == 3,
+            "stars: clear, within 3:00, above half HP");
     }
 }

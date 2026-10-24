@@ -41,6 +41,14 @@ public partial class Hud : CanvasLayer
     private Button _trainButton = null!;
     private Button _talkButton = null!;
     private Label _skillsHeader = null!;
+    private PanelContainer _statsPanel = null!;
+    private Control _topButtons = null!;
+    private bool _stageLayout;
+    private ProgressBar _stageHpBar = null!;
+    private ProgressBar _stageEnergyBar = null!;
+    private Label _stageHpText = null!;
+    private Label _stageEnergyText = null!;
+    private Label _stageLevel = null!;
     private VBoxContainer _skillsList = null!;
 
     // Exposed so tests and screenshots can open panels directly.
@@ -105,6 +113,15 @@ public partial class Hud : CanvasLayer
 
         _hpBar.MaxValue = Data.MaxHp;
         _hpBar.Value = Player.Hp;
+        if (_stageLayout)
+        {
+            _stageHpBar.MaxValue = Data.MaxHp;
+            _stageHpBar.Value = Player.Hp;
+            _stageHpText.Text = $"{Mathf.CeilToInt(Player.Hp)} / {Mathf.RoundToInt(Data.MaxHp)}";
+            _stageEnergyBar.MaxValue = Data.MaxEnergy;
+            _stageEnergyBar.Value = Player.Energy;
+            _stageEnergyText.Text = $"{Mathf.FloorToInt(Player.Energy)} / {Mathf.RoundToInt(Data.MaxEnergy)}";
+        }
         _energyBar.MaxValue = Data.MaxEnergy;
         _energyBar.Value = Player.Energy;
         _areaLabel.Text = AreaName;
@@ -126,6 +143,77 @@ public partial class Hud : CanvasLayer
     }
 
     public void SetTrainingAvailable(bool available) => _trainButton.Visible = available;
+
+    /// <summary>
+    /// The battle layout from the UI mockup: the village stats panel, menu buttons
+    /// and quest tracker give way to a player panel (portrait, level, HP and energy
+    /// with numbers) at the bottom left and a numbered row of square skill slots.
+    /// </summary>
+    public void UseStageLayout()
+    {
+        _stageLayout = true;
+        _statsPanel.Visible = false;
+        _topButtons.Visible = false;
+        SetQuestTrackerVisible(false);
+        var root = _statsPanel.GetParent<Control>();
+
+        var panel = new PanelContainer();
+        panel.AddThemeStyleboxOverride("panel", UiKit.NavyStyle(margin: 8f));
+        UiKit.Place(panel, new Vector2(0, 1), new Vector2(16, -112), new Vector2(330, 96));
+        root.AddChild(panel);
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 10);
+        panel.AddChild(row);
+        row.AddChild(new TextureRect
+        {
+            Texture = CharacterArt.Portrait(Data.Gender),
+            CustomMinimumSize = new Vector2(72, 72),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+        });
+        var bars = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        bars.AddThemeConstantOverride("separation", 4);
+        row.AddChild(bars);
+        _stageLevel = UiKit.MakeLabel("", 20, UiKit.Cream);
+        bars.AddChild(_stageLevel);
+        (_stageHpBar, _stageHpText) = NumberBar(bars, "✚", new Color(0.35f, 0.80f, 0.30f));
+        (_stageEnergyBar, _stageEnergyText) = NumberBar(bars, "⚡", new Color(0.25f, 0.50f, 0.95f));
+
+        // Joystick above the player panel; skill slots in a numbered row left of Attack.
+        UiKit.Place(_joystick, new Vector2(0, 1), new Vector2(56, -360), new Vector2(220, 220));
+        for (int i = 0; i < _skillButtons.Count; i++)
+        {
+            var button = _skillButtons[i];
+            button.Square = true;
+            button.SlotNumber = i + 1;
+            UiKit.Place(button, new Vector2(1, 1), new Vector2(-722 + i * 86, -112), new Vector2(74, 74));
+        }
+        Refresh();
+    }
+
+    private static (ProgressBar, Label) NumberBar(Control parent, string symbol, Color fill)
+    {
+        var line = new HBoxContainer();
+        line.AddThemeConstantOverride("separation", 4);
+        parent.AddChild(line);
+        line.AddChild(UiKit.MakeLabel(symbol, 14, fill.Lightened(0.3f)));
+        var bar = new ProgressBar { ShowPercentage = false, CustomMinimumSize = new Vector2(0, 18), SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        var back = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.05f) };
+        back.SetCornerRadiusAll(3);
+        var front = new StyleBoxFlat { BgColor = fill };
+        front.SetCornerRadiusAll(3);
+        bar.AddThemeStyleboxOverride("background", back);
+        bar.AddThemeStyleboxOverride("fill", front);
+        line.AddChild(bar);
+        var text = UiKit.MakeLabel("", 13, Colors.White);
+        text.HorizontalAlignment = HorizontalAlignment.Center;
+        text.VerticalAlignment = VerticalAlignment.Center;
+        text.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        text.AddThemeColorOverride("font_outline_color", Colors.Black);
+        text.AddThemeConstantOverride("outline_size", 4);
+        bar.AddChild(text);
+        return (bar, text);
+    }
 
     /// <summary>Stages show their own status in the tracker's place.</summary>
     public void SetQuestTrackerVisible(bool visible)
@@ -173,7 +261,7 @@ public partial class Hud : CanvasLayer
 
     private void BuildStats(Control root)
     {
-        var panel = new PanelContainer();
+        var panel = _statsPanel = new PanelContainer();
         panel.AddThemeStyleboxOverride("panel", UiKit.PanelStyle(new Color(0.4f, 0.4f, 0.4f)));
         UiKit.Place(panel, Vector2.Zero, new Vector2(16, 16), new Vector2(300, 0));
         root.AddChild(panel);
@@ -214,6 +302,7 @@ public partial class Hud : CanvasLayer
     private void BuildTopButtons(Control root)
     {
         var row = new HBoxContainer();
+        _topButtons = row;
         row.AddThemeConstantOverride("separation", 10);
         UiKit.Place(row, new Vector2(1, 0), new Vector2(-406, 16), new Vector2(390, 56));
         root.AddChild(row);
@@ -394,12 +483,19 @@ public partial class Hud : CanvasLayer
         _trainBar.Value = Data.TrainingXp;
         RefreshQuest();
 
+        if (_stageLayout)
+            _stageLevel.Text = $"Lv. {Data.Level}   {Data.ClassName}";
         for (int i = 0; i < _skillButtons.Count; i++)
         {
             var button = _skillButtons[i];
-            button.Visible = i < Data.EquippedSkills.Count;
-            if (!button.Visible)
+            button.Visible = i < Data.EquippedSkills.Count || _stageLayout;
+            if (i >= Data.EquippedSkills.Count)
+            {
+                // Stage layout shows empty slots, and locked ones with the level that opens them.
+                button.Icon = null;
+                button.Label = i < Data.SkillSlots ? "" : $"🔒\nLv {GameConfig.SkillSlotLevels[i]}";
                 continue;
+            }
             var skill = SkillCatalog.Get(Data.EquippedSkills[i]);
             button.Label = skill.Short;
             button.Icon = CharacterArt.SkillIcon(skill.Id);

@@ -28,6 +28,8 @@ public partial class Monster : CharacterBody2D
     public float Radius { get; private set; } = 16f;
     /// <summary>Red-streaked by corrupted Rumble (story swarms).</summary>
     public bool Corrupted { get; set; }
+    /// <summary>Stages show a "Lv. N" tag and the HP bar at all times (set before adding to the tree).</summary>
+    public bool ShowLevelTag { get; set; }
     /// <summary>Species level, used for XP and to decide whether fights train skill mastery.</summary>
     public int Level => _species.Level;
 
@@ -75,6 +77,23 @@ public partial class Monster : CharacterBody2D
             AddChild(MakeBossLabel(_eliteTitle));
         if (GameConfig.IsBoss(_species.Name) && !_elite && !IsBoss)
             AddChild(MakeBossLabel($"BOSS: {_species.Name.ToUpper()}"));
+        if (ShowLevelTag)
+            AddChild(MakeLevelTag());
+    }
+
+    /// <summary>A small dark "Lv. N" tag at the left end of the HP bar (a Label: drawing text every frame is slow).</summary>
+    private Label MakeLevelTag()
+    {
+        var tag = new Label { Text = $"Lv. {Level}" };
+        tag.AddThemeFontSizeOverride("font_size", 11);
+        tag.AddThemeColorOverride("font_color", Colors.White);
+        var style = new StyleBoxFlat { BgColor = new Color(0.05f, 0.05f, 0.08f, 0.85f) };
+        style.SetContentMarginAll(2);
+        style.SetCornerRadiusAll(2);
+        tag.AddThemeStyleboxOverride("normal", style);
+        float top = Radius * 0.9f - Radius * SpriteScale;
+        tag.Position = new Vector2(-Radius * 1.1f - 4, top - 26);
+        return tag;
     }
 
     /// <summary>Stage difficulty: multiplies HP and damage (call before adding to the tree).</summary>
@@ -238,7 +257,7 @@ public partial class Monster : CharacterBody2D
         float top = feet.Y - height;
         if (_stunLeft > 0f)
             Shapes.Ring(this, new Vector2(0, top - 6), 8f, new Color(1f, 1f, 0.4f));
-        if (_hp < _maxHp)
+        if (_hp < _maxHp || ShowLevelTag)
         {
             float w = Radius * 2.2f;
             DrawRect(new Rect2(-w / 2, top - 8, w, 5), new Color(0, 0, 0, 0.6f));
