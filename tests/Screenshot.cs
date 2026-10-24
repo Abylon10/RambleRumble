@@ -90,7 +90,7 @@ public partial class Screenshot : TestScene
     {
         var specs = new (string Species, string Size, int Stars)[]
         {
-            ("Goblin", "Giant", 2), ("Wolf", "Big", 1), ("Wolf", "Normal", 1), ("Slime", "Titan", 1), ("Slime", "Normal", 1),
+            ("Goblin Scout", "Giant", 2), ("Green Wolf", "Big", 1), ("Green Wolf", "Normal", 1), ("Green Slime", "Titan", 1), ("Green Slime", "Normal", 1),
         };
         foreach (var (species, size, stars) in specs)
         {

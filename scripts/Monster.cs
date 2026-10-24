@@ -19,7 +19,7 @@ public partial class Monster : CharacterBody2D
     /// <summary>Beyond this distance from the player a monster skips AI and redraws.</summary>
     private const float SleepRange = 1400f;
 
-    public string SpeciesId { get; private set; } = "Slime";
+    public string SpeciesId { get; private set; } = "Green Slime";
     /// <summary>Tag of whatever spawned it, e.g. a stage wave ("" if none).</summary>
     public string ZoneId { get; private set; } = "";
     /// <summary>Hunts the player anywhere (stage battlefields), ignoring aggro range and leash.</summary>
@@ -73,7 +73,7 @@ public partial class Monster : CharacterBody2D
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Radius } });
         if (_elite)
             AddChild(MakeBossLabel(_eliteTitle));
-        if (_species.Rarity == "Mythic" && !_elite)
+        if (GameConfig.IsBoss(_species.Name) && !_elite && !IsBoss)
             AddChild(MakeBossLabel($"BOSS: {_species.Name.ToUpper()}"));
     }
 

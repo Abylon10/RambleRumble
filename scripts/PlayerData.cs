@@ -561,7 +561,7 @@ public partial class PlayerData : Node
             (drop.SkillLearned, drop.SkillIsNew) = OpenSkillBox();
         drop.Xp = GameConfig.KillXp(GameConfig.SpeciesOf(speciesId));
         var species = GameConfig.SpeciesOf(speciesId);
-        bool boss = species.Name is "Slime King" or "Crimson Fang" || species.Rarity == "Mythic";
+        bool boss = GameConfig.IsBoss(species.Name);
         if (boss || Rng.Randf() < GameConfig.MaterialDropChance)
         {
             drop.Material = GameConfig.MaterialFrom(speciesId);
@@ -768,7 +768,8 @@ public partial class PlayerData : Node
     {
         if (!QuestAccepted || CurrentQuest is not { } quest || quest.Goal != goal || QuestReady)
             return;
-        if (quest.Target != "" && quest.Target != target)
+        // Kill targets name a family: "Slime" counts every kind of slime.
+        if (quest.Target != "" && (goal == QuestGoal.Kill ? !target.Contains(quest.Target) : quest.Target != target))
             return;
         QuestProgress++;
         if (QuestReady)
@@ -960,6 +961,13 @@ public partial class PlayerData : Node
         }
         if (EquippedSkills.Count > SkillSlots)
             EquippedSkills.RemoveRange(SkillSlots, EquippedSkills.Count - SkillSlots);
+        // The monster roster was redrawn: carry old Echoes over to their new species.
+        foreach (var pet in Pets)
+            if (GameConfig.RenamedSpecies.TryGetValue(pet.Species, out var renamed))
+            {
+                pet.Species = renamed;
+                pet.Rarity = GameConfig.SpeciesOf(renamed).Rarity;
+            }
     }
 
     private static void ReplaceAll<T>(ICollection<T> target, IEnumerable<T> source)

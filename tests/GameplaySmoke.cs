@@ -149,7 +149,7 @@ public partial class GameplaySmoke : TestScene
         Check(map.Def.Region == "Verdant Forest", "Chapter 2 map is the Verdant Forest");
         map.Select(StageCatalog.Get("2-10"));
         var stage = await Go<StagePage>(() => map.StartSelected());
-        Check(stage.AliveMonsters.Any(m => m.IsBoss && m.SpeciesId == "Crimson Fang"), "stage 2-10 has the Crimson Fang boss");
+        Check(stage.AliveMonsters.Any(m => m.IsBoss && m.SpeciesId == "Elderwood Guardian"), "stage 2-10 has the Elderwood Guardian boss");
         Check(stage.Stage.Puzzle == PuzzleKind.Braziers, "stage 10 uses the Braziers puzzle");
     }
 }

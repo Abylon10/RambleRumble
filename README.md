@@ -11,7 +11,7 @@ There's no online play, no multiplayer and no raids. Saves stay on the device.
 | **Story:** Prologue intro, then Chapter 1 *A Rambler's Beginning* and Chapter 2 *The First Companion*, given by Garrick in Hearthwood Village | ✅ |
 | Quest tracker, dialogue box, quest giver with `!`/`?` markers, scripted swarm of red-streaked slimes | ✅ |
 | **Chapter maps (Alien Creeps style):** a road of 10 stage circles per chapter; tap one to play it on its own page | ✅ |
-| **Chapter 1 Whispering Plains** (Slime King boss) and **Chapter 2 Verdant Forest** (Crimson Fang boss), 20 stages | ✅ |
+| **Chapter 1 Whispering Plains** (Crimson Fang boss) and **Chapter 2 Verdant Forest** (Elderwood Guardian boss), 20 stages | ✅ |
 | **Isometric stages (Final Fantasy Tactics look):** long strips with raised tiles, cliffs, rivers, bridges, waterfalls; enemy groups along the road; defeat all and reach the flag | ✅ |
 | **Every stage has a treasure chest and a puzzle chest.** Puzzles rotate: Rune Plates, Braziers, Levers, Echo Crystals | ✅ |
 | Stars (1–3 by HP left), first-clear rewards, half rewards on replays, stages unlock in order | ✅ |
@@ -30,10 +30,10 @@ There's no online play, no multiplayer and no raids. Saves stay on the device.
 | Drops: gold, Echoes with rolled size, skill boxes, pity for rare Echoes | ✅ |
 | Echo fence income (8 h offline cap), Echo levels, star-up merging, Star Shards | ✅ |
 | Upgrades: Fence Slots, Energy Well, Training Ground, Pet Lab | ✅ |
-| Chapter 3 onward (Crimson Fang, Kael and the Rambler Guild, the Worldheart...) | next |
+| Chapter 3 onward (Kael and the Rambler Guild, the Worldheart...) | next |
 | Dodge, more lineages' skills, more class tiers | later |
 
-Monsters and Echoes are pixel art generated in code (`scripts/MonsterArt.cs`). Tiles, scenery and effects are still simple shapes.
+Monsters and Echoes are pixel art generated in code (`scripts/MonsterArt.cs`): 34 species, 17 per chapter, including elites and the two bosses. Tiles, scenery and effects are still simple shapes.
 
 ## Run it
 

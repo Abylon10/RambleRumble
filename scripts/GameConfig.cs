@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using Godot;
@@ -83,21 +84,65 @@ public static class GameConfig
         new("pet_lab", "Pet Lab", "Unlocks the next star rank, -10% merge cost", 2, 5000, 5.0f),
     };
 
-    // Which zone each species lives in is set in Zones.cs.
+    /// <summary>Stats grow with the species' level; <paramref name="tough"/> scales HP and damage (elites ~1.5).</summary>
+    private static SpeciesInfo M(string name, string rarity, int level, float speed, float radius, Color color, float tough = 1f)
+    {
+        int goldMin = 2 + (int)(level * 0.7f * tough);
+        return new(name, rarity, (40f + 6f * level) * tough, (4.5f + 0.5f * level) * tough, speed, radius,
+            (9f + 1.4f * level) * tough, goldMin, goldMin * 2 + 1, color, level);
+    }
+
+    /// <summary>The Chapter 1-2 monster roster; stages pick from it in StageCatalog.cs.</summary>
     public static readonly SpeciesInfo[] Species =
     {
-        new("Slime", "Common", 45f, 5f, 70f, 16f, 10f, 2, 5, new Color(0.45f, 0.85f, 0.45f), 1),
-        new("Shroom", "Common", 55f, 6f, 60f, 17f, 12f, 3, 6, new Color(0.85f, 0.40f, 0.35f), 5),
-        new("Wolf", "Uncommon", 80f, 8f, 115f, 18f, 18f, 5, 9, new Color(0.60f, 0.58f, 0.62f), 8),
-        new("Aqua Slime", "Uncommon", 90f, 7f, 80f, 18f, 20f, 6, 10, new Color(0.35f, 0.65f, 0.95f), 10),
-        new("Goblin", "Rare", 130f, 12f, 90f, 17f, 30f, 10, 18, new Color(0.55f, 0.65f, 0.25f), 15),
-        new("Boar", "Rare", 170f, 15f, 140f, 21f, 40f, 14, 24, new Color(0.55f, 0.38f, 0.25f), 20),
-        new("Crystal Bat", "Epic", 260f, 22f, 150f, 17f, 60f, 30, 50, new Color(0.55f, 0.40f, 0.95f), 35),
-        new("Fire Imp", "Legendary", 480f, 35f, 120f, 19f, 100f, 70, 110, new Color(0.95f, 0.35f, 0.15f), 50),
-        new("Stone Golem", "Mythic", 1800f, 60f, 55f, 34f, 180f, 300, 500, new Color(0.45f, 0.55f, 0.55f), 70),
+        // Chapter 1: Whispering Plains.
+        M("Green Slime", "Common", 1, 70f, 16f, new Color(0.40f, 0.82f, 0.38f)),
+        M("Red Slime", "Common", 1, 75f, 16f, new Color(0.90f, 0.30f, 0.30f)),
+        M("Blue Slime", "Common", 2, 80f, 16f, new Color(0.30f, 0.60f, 0.95f)),
+        M("Slime Plimt", "Common", 3, 70f, 16f, new Color(0.55f, 0.82f, 0.35f)),
+        M("Sproutling", "Common", 3, 85f, 15f, new Color(0.62f, 0.45f, 0.28f)),
+        M("Field Rat", "Common", 4, 120f, 14f, new Color(0.62f, 0.45f, 0.30f)),
+        M("Grasshopper", "Uncommon", 4, 130f, 15f, new Color(0.55f, 0.82f, 0.30f)),
+        M("Beelet", "Uncommon", 5, 110f, 14f, new Color(0.98f, 0.80f, 0.25f)),
+        M("Plains Boar", "Uncommon", 5, 125f, 19f, new Color(0.55f, 0.36f, 0.24f)),
+        M("Scarecrow", "Uncommon", 6, 75f, 18f, new Color(0.70f, 0.50f, 0.28f)),
+        M("Thorn Slime", "Rare", 6, 70f, 19f, new Color(0.35f, 0.72f, 0.30f), 1.5f),
+        M("Rock Slime", "Rare", 7, 55f, 19f, new Color(0.58f, 0.58f, 0.62f), 1.6f),
+        M("Wild Dog", "Rare", 7, 140f, 17f, new Color(0.85f, 0.55f, 0.28f), 1.4f),
+        M("Horned Boar", "Rare", 8, 135f, 21f, new Color(0.50f, 0.30f, 0.20f), 1.5f),
+        M("Wisp Spirit", "Rare", 8, 110f, 15f, new Color(0.45f, 0.65f, 1.00f), 1.4f),
+        M("Rambling Knight", "Epic", 9, 85f, 19f, new Color(0.62f, 0.66f, 0.74f), 1.8f),
+        // Chapter 2: Verdant Forest.
+        M("Forest Slime", "Common", 11, 75f, 16f, new Color(0.30f, 0.70f, 0.35f)),
+        M("Wood Sprite", "Common", 11, 115f, 13f, new Color(0.60f, 1.00f, 0.55f)),
+        M("Mushcap", "Common", 12, 65f, 17f, new Color(0.88f, 0.25f, 0.22f)),
+        M("Leafy", "Common", 12, 120f, 15f, new Color(0.72f, 0.62f, 0.52f)),
+        M("Forest Rabbit", "Common", 13, 130f, 14f, new Color(0.92f, 0.86f, 0.76f)),
+        M("Green Wolf", "Uncommon", 13, 125f, 18f, new Color(0.45f, 0.55f, 0.38f)),
+        M("Goblin Scout", "Uncommon", 14, 100f, 17f, new Color(0.50f, 0.68f, 0.28f)),
+        M("Treantling", "Uncommon", 14, 65f, 18f, new Color(0.55f, 0.38f, 0.22f)),
+        M("Sporeling", "Uncommon", 15, 70f, 17f, new Color(0.65f, 0.35f, 0.85f)),
+        M("Forest Bat", "Uncommon", 15, 145f, 15f, new Color(0.42f, 0.30f, 0.65f)),
+        M("Dire Wolf", "Rare", 16, 140f, 20f, new Color(0.38f, 0.38f, 0.44f), 1.5f),
+        M("Poison Cap", "Rare", 16, 65f, 19f, new Color(0.60f, 0.30f, 0.75f), 1.5f),
+        M("Goblin Brute", "Rare", 17, 85f, 20f, new Color(0.45f, 0.62f, 0.25f), 1.6f),
+        M("Ancient Treant", "Epic", 18, 55f, 22f, new Color(0.50f, 0.36f, 0.20f), 1.8f),
+        M("Shadow Bat", "Rare", 18, 150f, 17f, new Color(0.35f, 0.22f, 0.58f), 1.5f),
+        M("Entling Shaman", "Epic", 19, 75f, 19f, new Color(0.50f, 0.36f, 0.22f), 1.7f),
         // Chapter bosses.
-        new("Slime King", "Rare", 520f, 10f, 70f, 32f, 26f, 40, 60, new Color(0.55f, 0.90f, 0.40f), 10),
-        new("Crimson Fang", "Epic", 1150f, 16f, 150f, 30f, 55f, 120, 180, new Color(0.62f, 0.16f, 0.16f), 18),
+        new("Crimson Fang", "Epic", 620f, 11f, 140f, 30f, 45f, 60, 90, new Color(0.30f, 0.28f, 0.32f), 10),
+        new("Elderwood Guardian", "Legendary", 1400f, 18f, 60f, 34f, 70f, 140, 200, new Color(0.50f, 0.36f, 0.20f), 20),
+    };
+
+    /// <summary>Chapter bosses: they always drop materials and use the big sprite.</summary>
+    public static bool IsBoss(string species) => species is "Crimson Fang" or "Elderwood Guardian";
+
+    /// <summary>Species renamed or retired when the roster was redrawn, for old saves.</summary>
+    public static readonly Dictionary<string, string> RenamedSpecies = new()
+    {
+        ["Slime"] = "Green Slime", ["Aqua Slime"] = "Blue Slime", ["Slime King"] = "Thorn Slime",
+        ["Shroom"] = "Mushcap", ["Wolf"] = "Green Wolf", ["Boar"] = "Plains Boar", ["Goblin"] = "Goblin Scout",
+        ["Crystal Bat"] = "Shadow Bat", ["Fire Imp"] = "Wisp Spirit", ["Stone Golem"] = "Ancient Treant",
     };
 
     // Skills (starters and the Ember lineage) live in SkillCatalog.cs.
@@ -144,11 +189,14 @@ public static class GameConfig
     /// <summary>What each species may drop (35% per kill; bosses always drop three).</summary>
     public static string MaterialFrom(string species) => species switch
     {
-        "Slime" or "Aqua Slime" or "Slime King" => "Slime Gel",
-        "Wolf" or "Boar" or "Crimson Fang" => "Wolf Fang",
-        "Shroom" => "Mushroom Cap",
-        "Goblin" => "Goblin Scrap",
-        _ => "Crystal Shard",
+        "Green Slime" or "Red Slime" or "Blue Slime" or "Thorn Slime" or "Rock Slime" or "Forest Slime" => "Slime Gel",
+        "Slime Plimt" or "Sproutling" or "Grasshopper" or "Beelet" => "Meadow Leaf",
+        "Wood Sprite" or "Leafy" or "Entling Shaman" => "Forest Herb",
+        "Treantling" or "Ancient Treant" or "Elderwood Guardian" => "Oak Wood",
+        "Mushcap" or "Sporeling" or "Poison Cap" => "Mushroom Cap",
+        "Scarecrow" or "Goblin Scout" or "Goblin Brute" or "Rambling Knight" => "Goblin Scrap",
+        "Wisp Spirit" or "Shadow Bat" => "Crystal Shard",
+        _ => "Wolf Fang", // rats, dogs, boars, wolves, rabbits, bats
     };
 
     public const float MaterialDropChance = 0.35f;
@@ -176,8 +224,8 @@ public static class GameConfig
     /// <summary>XP from <paramref name="level"/> to the next level.</summary>
     public static int XpToNextLevel(int level) => (int)Math.Round(30 + 15 * Math.Pow(level, 1.2));
 
-    /// <summary>Kill XP: tougher (higher-level) species give more; bosses five times as much.</summary>
-    public static int KillXp(SpeciesInfo species) => (8 + 4 * species.Level) * (species.Rarity == "Mythic" ? 5 : 1);
+    /// <summary>Kill XP: tougher (higher-level) species give more; chapter bosses five times as much.</summary>
+    public static int KillXp(SpeciesInfo species) => (8 + 4 * species.Level) * (IsBoss(species.Name) ? 5 : 1);
 
     /// <summary>Character levels that each unlock one more equipped skill slot.</summary>
     public static readonly int[] SkillSlotLevels = { 1, 25, 60, 100, 150, 200 };

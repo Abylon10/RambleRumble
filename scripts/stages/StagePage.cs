@@ -149,7 +149,7 @@ public partial class StagePage : Node2D
                 for (int n = 0; n < count; n++)
                     Spawn(species, centre);
             if (wave.Leader != "")
-                Spawn(wave.Leader, centre, eliteTitle: "SWARM LEADER");
+                Spawn(wave.Leader, centre, eliteTitle: Stage.Corrupted ? "SWARM LEADER" : wave.Leader.ToUpper());
             if (last && Stage.IsBoss)
                 Spawn(Stage.Boss, Map.RoadPoint(0.93f), boss: true);
         }
@@ -182,7 +182,7 @@ public partial class StagePage : Node2D
         monster.ApplyScale(Stage.Scale);
         monster.Corrupted = Stage.Corrupted;
         if (eliteTitle != null)
-            monster.MakeElite(eliteTitle);
+            monster.MakeElite(eliteTitle, hpMult: 2.5f, sizeMult: 1.3f);
         if (boss)
             monster.MakeBoss();
         monster.Died += m =>

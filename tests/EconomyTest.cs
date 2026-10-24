@@ -27,7 +27,7 @@ public partial class EconomyTest : TestScene
         Data.ResetProgress();
 
         // Fence slots and the one-role rule.
-        var ids = Enumerable.Range(0, 4).Select(_ => AddResting("Slime")).ToList();
+        var ids = Enumerable.Range(0, 4).Select(_ => AddResting("Green Slime")).ToList();
         for (int i = 0; i < 3; i++)
             Data.SetFenced(ids[i], true);
         Check(!Data.SetFenced(ids[3], true), "4th pet can't enter a 3-slot fence");
@@ -55,8 +55,8 @@ public partial class EconomyTest : TestScene
         // Merge 1★ -> 2★ needs 1 copy; result takes the largest size.
         Data.ResetProgress();
         Data.Gold = 1_000_000;
-        int baseId = AddResting("Wolf");
-        int giantCopy = AddResting("Wolf", "Giant");
+        int baseId = AddResting("Green Wolf");
+        int giantCopy = AddResting("Green Wolf", "Giant");
         var plan = Data.PlanMerge(baseId);
         Check(plan.Ok && plan.Fodder.SequenceEqual(new[] { giantCopy }), "2★ plan uses the one duplicate");
         Check(Data.Merge(baseId), "merge to 2★ succeeds");
@@ -70,7 +70,7 @@ public partial class EconomyTest : TestScene
         Check(!plan.Ok, $"3★ blocked with no copies or shards ({plan.Reason})");
         Data.StarShards["Uncommon"] = 5;
         Check(!Data.PlanMerge(baseId).Ok, "shards alone can't cover more than half the copies");
-        AddResting("Wolf");
+        AddResting("Green Wolf");
         plan = Data.PlanMerge(baseId);
         Check(plan.Ok && plan.Shards == 1 && plan.Fodder.Count == 1, "1 copy + 1 shard makes 3★");
         Data.Merge(baseId);
@@ -78,7 +78,7 @@ public partial class EconomyTest : TestScene
 
         // Pet Lab gates 4★.
         for (int i = 0; i < 3; i++)
-            AddResting("Wolf");
+            AddResting("Green Wolf");
         plan = Data.PlanMerge(baseId);
         Check(!plan.Ok && plan.Reason.Contains("Pet Lab"), "4★ needs a Pet Lab upgrade");
         Check(Data.BuyUpgrade("pet_lab"), "buy Pet Lab level 1");
@@ -87,7 +87,7 @@ public partial class EconomyTest : TestScene
         Check(Data.Merge(baseId) && Data.FindPet(baseId)!.Stars == 4, "merge to 4★");
 
         // Release gives gold and a shard.
-        int spare = AddResting("Goblin");
+        int spare = AddResting("Goblin Brute");
         int goldBefore = Data.Gold;
         Check(Data.ReleasePet(spare), "release succeeds");
         Check(Data.Gold == goldBefore + 40 && Data.StarShards["Rare"] == 1, "release pays 40 gold + 1 Rare shard");
@@ -114,7 +114,7 @@ public partial class EconomyTest : TestScene
         // New drops auto-fence while slots are free.
         Data.ResetProgress();
         Data.Pity["Rare"] = 24;
-        Data.RecordKill("Goblin");
+        Data.RecordKill("Goblin Brute");
         Check(Data.Pets.Count == 1 && Data.Pets[0].Role == PetRole.Fence, "new pet goes into a free fence slot");
 
         // Save/load keeps the new fields.

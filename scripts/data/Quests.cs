@@ -77,7 +77,7 @@ public static class Quests
             "One of the slimes you fought left a small crystal instead of vanishing. A Monster Echo: the surviving imprint " +
             "of a creature's Rumble. Calm a few more slimes in the plains and let's see if it wakes.",
             "Defeat 5 Slimes in the Whispering Plains", QuestGoal.Kill, "Slime", 5, 60, 120,
-            "Look, it's moving! ...Ha! Not every victory ends with an enemy.", RewardPet: "Slime"),
+            "Look, it's moving! ...Ha! Not every victory ends with an enemy.", RewardPet: "Green Slime"),
         new("ch2_ranch", 2, "The Abandoned Ranch",
             "Take these keys: an old ranch by the village. Ramblers once housed Echo companions there. Settle your " +
             "slime in the fence; their surplus energy can be traded for gold.",

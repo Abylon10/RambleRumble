@@ -121,7 +121,7 @@ public partial class ProgressionTest : TestScene
         Check(!Data.QuestReady, "the swarm quest waits for stage 1-3");
         var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get("1-3")));
         var swarm = stage.AliveMonsters;
-        Check(swarm.Count == 9 && swarm.All(m => m.Corrupted), $"stage 1-3 holds 9 red-streaked slimes incl. the leader (got {swarm.Count})");
+        Check(swarm.Count == 10 && swarm.All(m => m.Corrupted), $"stage 1-3 holds 10 red-streaked slimes incl. the leader (got {swarm.Count})");
         foreach (var monster in swarm)
             monster.TakeDamage(1_000_000f, showNumber: false);
         await ProcessFrame();
@@ -137,14 +137,14 @@ public partial class ProgressionTest : TestScene
         // Chapter 2-1: the first Echo (5 slimes, then Garrick's crystal wakes up).
         Data.AcceptQuest();
         for (int i = 0; i < 4; i++)
-            Data.RecordKill("Slime");
-        Data.RecordKill("Wolf");
+            Data.RecordKill("Green Slime");
+        Data.RecordKill("Green Wolf");
         Check(!Data.QuestReady && Data.QuestProgress == 4, "only Slimes count (4/5 after 4 Slimes and a Wolf)");
-        Data.RecordKill("Slime");
+        Data.RecordKill("Green Slime");
         Check(Data.QuestReady, "5th Slime completes the quest");
-        int echoes = Data.Pets.Count(p => p.Species == "Slime");
+        int echoes = Data.Pets.Count(p => p.Species == "Green Slime");
         Data.TurnInQuest();
-        Check(Data.Pets.Count(p => p.Species == "Slime") == echoes + 1, "hand-in gives a Slime Echo");
+        Check(Data.Pets.Count(p => p.Species == "Green Slime") == echoes + 1, "hand-in gives a Slime Echo");
 
         // Chapter 2-2: the ranch fence (accepting checks the current state).
         Data.AcceptQuest();
@@ -189,7 +189,7 @@ public partial class ProgressionTest : TestScene
             Data.EquippedSkills.Clear();
             Data.EquippedSkills.Add(id);
             player.RefillEnergy();
-            var target = stage.SpawnAt("Goblin", player.GlobalPosition + player.Facing * 50f);
+            var target = stage.SpawnAt("Goblin Scout", player.GlobalPosition + player.Facing * 50f);
             await PhysicsFrame();
             float energy = player.Energy;
             int mastery = Data.Mastery.GetValueOrDefault(id);
@@ -224,7 +224,7 @@ public partial class ProgressionTest : TestScene
         Check(Data.BattlePet == pet && !Data.FencedPets().Contains(pet), "battle pet leaves the fence (no gold while fighting)");
         var stage = await Go<StagePage>(() => Game.Instance.StartStage(StageCatalog.Get("1-1")));
         int kills = Data.Kills;
-        var foe = stage.SpawnAt("Slime", stage.Player.GlobalPosition + new Vector2(60, 0));
+        var foe = stage.SpawnAt("Green Slime", stage.Player.GlobalPosition + new Vector2(60, 0));
         // The player never attacks (and is kept alive); only the pet fights.
         for (int i = 0; i < 60 * 15 && Data.Kills == kills; i++)
         {
