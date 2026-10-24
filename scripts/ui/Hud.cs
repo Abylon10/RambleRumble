@@ -13,7 +13,7 @@ public partial class Hud : CanvasLayer
     public event Action? TrainPressed;
 
     public Player Player { get; set; } = null!;
-    public string AreaName { get; set; } = "Lobby";
+    public string AreaName { get; private set; } = "Lobby";
 
     private Label _cpLabel = null!;
     private Label _goldLabel = null!;
@@ -103,6 +103,13 @@ public partial class Hud : CanvasLayer
     }
 
     public void SetTrainingAvailable(bool available) => _trainButton.Visible = available;
+
+    /// <summary>Shows where the player is (Lobby or a Wilderness zone) in the stats panel.</summary>
+    public void SetArea(string name, Color color)
+    {
+        AreaName = name;
+        _areaLabel.AddThemeColorOverride("font_color", color);
+    }
 
     public void Toast(string text, Color color)
     {

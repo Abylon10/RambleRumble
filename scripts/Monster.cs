@@ -17,6 +17,8 @@ public partial class Monster : CharacterBody2D
     private const float PlayerRadius = 18f;
 
     public string SpeciesId { get; private set; } = "Slime";
+    /// <summary>Id of the Wilderness zone that spawned it ("" if spawned directly).</summary>
+    public string ZoneId { get; private set; } = "";
     public float Radius { get; private set; } = 16f;
 
     private GameConfig.SpeciesInfo _species = GameConfig.Species[0];
@@ -34,9 +36,10 @@ public partial class Monster : CharacterBody2D
     private float _wanderTimer;
     private bool _dead;
 
-    public void Setup(string speciesId, Vector2 position, Player target)
+    public void Setup(string speciesId, Vector2 position, Player target, string zoneId = "")
     {
         SpeciesId = speciesId;
+        ZoneId = zoneId;
         _species = GameConfig.SpeciesOf(speciesId);
         _maxHp = _hp = _species.Hp;
         Radius = _species.Radius;
@@ -144,6 +147,8 @@ public partial class Monster : CharacterBody2D
         DrawCircle(eyeDir + new Vector2(5, -4), 3f, Colors.Black);
         if (_stunLeft > 0f)
             DrawArc(new Vector2(0, -Radius - 6), 8f, 0f, Mathf.Tau, 12, new Color(1f, 1f, 0.4f), 2f);
+        if (_species.Rarity == "Mythic")
+            MapArt.Label(this, new Vector2(0, -Radius - 18), $"BOSS: {_species.Name.ToUpper()}", 16, GameConfig.RarityColor("Mythic"));
         if (_hp < _maxHp)
         {
             float w = Radius * 2.2f;

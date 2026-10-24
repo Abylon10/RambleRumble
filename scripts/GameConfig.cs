@@ -85,16 +85,19 @@ public static class GameConfig
         new("pet_lab", "Pet Lab", "Unlocks the next star rank, -10% merge cost", 2, 5000, 5.0f),
     };
 
+    // Which zone each species lives in is set in Zones.cs.
     public static readonly SpeciesInfo[] Species =
     {
         new("Slime", "Common", 45f, 5f, 70f, 16f, 10f, 2, 5, new Color(0.45f, 0.85f, 0.45f)),
+        new("Shroom", "Common", 55f, 6f, 60f, 17f, 12f, 3, 6, new Color(0.85f, 0.40f, 0.35f)),
         new("Wolf", "Uncommon", 80f, 8f, 115f, 18f, 18f, 5, 9, new Color(0.60f, 0.58f, 0.62f)),
+        new("Aqua Slime", "Uncommon", 90f, 7f, 80f, 18f, 20f, 6, 10, new Color(0.35f, 0.65f, 0.95f)),
         new("Goblin", "Rare", 130f, 12f, 90f, 17f, 30f, 10, 18, new Color(0.55f, 0.65f, 0.25f)),
+        new("Boar", "Rare", 170f, 15f, 140f, 21f, 40f, 14, 24, new Color(0.55f, 0.38f, 0.25f)),
+        new("Crystal Bat", "Epic", 260f, 22f, 150f, 17f, 60f, 30, 50, new Color(0.55f, 0.40f, 0.95f)),
+        new("Fire Imp", "Legendary", 480f, 35f, 120f, 19f, 100f, 70, 110, new Color(0.95f, 0.35f, 0.15f)),
+        new("Stone Golem", "Mythic", 1800f, 60f, 55f, 34f, 180f, 300, 500, new Color(0.45f, 0.55f, 0.55f)),
     };
-
-    /// <summary>Spawn weights for the first Wilderness zone.</summary>
-    public static readonly (string Species, int Weight)[] WildSpawns = { ("Slime", 60), ("Wolf", 30), ("Goblin", 10) };
-    public const int MaxWildMonsters = 10;
 
     public static readonly SkillInfo[] Skills =
     {

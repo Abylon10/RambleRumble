@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Godot;
 
@@ -37,9 +38,10 @@ public partial class GameplaySmoke : TestScene
             world.OnTrainPressed();
         Check(Data.TrainingLevel > levelBefore, $"training raises level (now {Data.TrainingLevel})");
 
-        world.Teleport(World.WildSpawn, toWilderness: true);
+        world.Teleport(Zones.ArrivalPoint, toWilderness: true);
         await PhysicsFrame();
         Check(world.InWilderness && !player.InSafeZone, "portal moves player into the Wilderness");
+        Check(world.CurrentZone?.Id == "A", "players arrive in Starter Plains");
 
         // Learn every skill and buy both extra slots so all four buttons are used.
         foreach (var id in new[] { "wind_slash", "stone_breaker", "thunder_dash" })
@@ -81,11 +83,52 @@ public partial class GameplaySmoke : TestScene
         Data.LoadGame();
         Check(Data.Gold == savedGold && Data.Pets.Count == savedPets, "save/load round-trips gold and pets");
 
+        await CheckWorld(world, player);
+
         player.TakeDamage(99_999f);
         for (int i = 0; i < 3; i++)
             await PhysicsFrame();
         Check(!world.InWilderness, "defeat sends player back to the Lobby");
 
+        // Walking into the Upgrade Station opens the Upgrades panel.
+        world.Hud.StarterPanel.Visible = false;
+        player.GlobalPosition = LobbyMap.UpgradeStation;
+        for (int i = 0; i < 3; i++)
+            await PhysicsFrame();
+        Check(world.Hud.UpgradesPanel.Visible, "Upgrade Station opens the Upgrades panel");
+
         Finish();
+    }
+
+    private async System.Threading.Tasks.Task CheckWorld(World world, Player player)
+    {
+        bool cellsMatch = Zones.All.All(z => z.Cells.All(c => Zones.At(c.GetCenter()) == z));
+        Check(cellsMatch && Zones.All.Length == 7, "7 zones, every cell maps back to its zone");
+        bool speciesExist = Zones.All.SelectMany(z => z.Spawns).All(s => GameConfig.Species.Any(sp => sp.Name == s.Species));
+        Check(speciesExist, "every zone spawns known species");
+
+        var rocky = Zones.ById("D");
+        player.GlobalPosition = rocky.Cells[0].GetCenter();
+        await PhysicsFrame();
+        Check(world.CurrentZone == rocky && world.Hud.AreaName == "Rocky Hills", "walking into Rocky Hills updates the zone and HUD");
+
+        // Monsters near the campfire could hit the player, so clear them for a clean heal check.
+        foreach (var monster in world.Monsters.GetChildren().OfType<Monster>().Where(m => m.GlobalPosition.DistanceTo(Zones.Campfires[0]) < 700f))
+            monster.QueueFree();
+        player.TakeDamage(30f);
+        float hurt = player.Hp;
+        player.GlobalPosition = Zones.Campfires[0];
+        for (int i = 0; i < 30; i++)
+            await PhysicsFrame();
+        Check(player.Resting && player.Hp > hurt, $"campfire heals ({hurt:0} -> {player.Hp:0} HP)");
+
+        // Let the spawners run: zones respawn every 3-6 s (the Ruins boss every 45 s).
+        player.GlobalPosition = Zones.ArrivalPoint;
+        for (int i = 0; i < 60 * 7; i++)
+            await PhysicsFrame();
+        var perZone = world.Monsters.GetChildren().OfType<Monster>().GroupBy(m => m.ZoneId).ToDictionary(g => g.Key, g => g.Count());
+        Check(Zones.All.All(z => perZone.GetValueOrDefault(z.Id) > 0),
+            "every zone spawns monsters (" + string.Join(", ", Zones.All.Select(z => $"{z.Id}:{perZone.GetValueOrDefault(z.Id)}")) + ")");
+        Check(Zones.All.All(z => perZone.GetValueOrDefault(z.Id) <= z.Cap), "no zone goes over its cap");
     }
 }

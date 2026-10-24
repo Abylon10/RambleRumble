@@ -27,6 +27,8 @@ public partial class Player : CharacterBody2D
     public Vector2 JoystickVector { get; set; }
     public Vector2 Facing { get; private set; } = Vector2.Right;
     public bool InSafeZone { get; set; } = true;
+    /// <summary>True while at a Wilderness campfire (World heals the player there).</summary>
+    public bool Resting { get; set; }
 
     /// <summary>Action id -> seconds of cooldown left.</summary>
     private readonly Dictionary<string, float> _cooldowns = new();
@@ -212,6 +214,8 @@ public partial class Player : CharacterBody2D
     }
 
     public void HealFull() => Hp = Data.MaxHp;
+
+    public void Heal(float amount) => Hp = Mathf.Min(Data.MaxHp, Hp + amount);
 
     private bool StartCooldown(string actionId, float seconds)
     {

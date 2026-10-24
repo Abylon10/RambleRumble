@@ -5,7 +5,7 @@ namespace RambleRumble.Tests;
 
 /// <summary>
 /// Opens the main scene in a given state and saves a screenshot (needs a window, not --headless).
-/// Run: godot --path . res://tests/Screenshot.tscn -- --test &lt;out.png&gt; [starter] [wild] [pets] [upgrades] [fence]
+/// Run: godot --path . res://tests/Screenshot.tscn -- --test &lt;out.png&gt; [starter] [wild] [pets] [upgrades] [fence] [at=x,y] [zoom=z]
 /// </summary>
 public partial class Screenshot : Node
 {
@@ -27,13 +27,13 @@ public partial class Screenshot : Node
         if (args.Contains("pets") || args.Contains("upgrades") || args.Contains("fence"))
         {
             SeedPets(data);
-            world.Player.GlobalPosition = new Vector2(-340, 150);
+            world.Player.GlobalPosition = LobbyMap.FenceRect.GetCenter() + new Vector2(0, 150);
         }
         if (args.Contains("wild"))
         {
-            world.Teleport(World.WildSpawn, toWilderness: true);
-            for (int i = 0; i < 6; i++)
-                world.SpawnMonster();
+            world.Teleport(Zones.ArrivalPoint, toWilderness: true);
+            foreach (var species in new[] { "Slime", "Slime", "Shroom" })
+                world.SpawnMonster(species, Zones.ArrivalPoint + new Vector2((float)GD.RandRange(-260, 260), (float)GD.RandRange(-200, -80)));
         }
         await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
         if (args.Contains("pets"))
@@ -44,6 +44,20 @@ public partial class Screenshot : Node
         }
         if (args.Contains("upgrades"))
             world.Hud.Open(world.Hud.UpgradesPanel);
+        // "at=x,y" moves the player there and "zoom=z" zooms the camera out, for map overviews.
+        foreach (var arg in args)
+        {
+            if (arg.StartsWith("at="))
+            {
+                var xy = arg[3..].Split(',');
+                world.Player.GlobalPosition = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
+                world.Player.InSafeZone = true;
+            }
+            if (arg.StartsWith("zoom="))
+                GetViewport().GetCamera2D().Zoom = Vector2.One * float.Parse(arg[5..]);
+        }
+        if (args.Any(a => a.StartsWith("at=")))
+            GetViewport().GetCamera2D().ResetSmoothing();
         await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
         GetViewport().GetTexture().GetImage().SavePng(output);
         data.ResetProgress();

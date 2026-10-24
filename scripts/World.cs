@@ -7,32 +7,27 @@ using RambleRumble.UI;
 namespace RambleRumble;
 
 /// <summary>
-/// Builds the world in code: the Lobby plot (safe zone with training, the pet
-/// fence and a Raid Board placeholder) and one Wilderness zone.
+/// Puts the game world together: the Lobby and Wilderness maps, their walls,
+/// walk-in stations, portals and campfires, per-zone monster spawning, the
+/// player and the HUD.
 /// </summary>
 public partial class World : Node2D
 {
-    public static readonly Rect2 LobbyRect = new(-600, -400, 1200, 800);
-    public static readonly Rect2 WildRect = new(1400, -900, 2400, 1800);
     private const float Wall = 40f;
-    private static readonly Rect2 TrainingRect = new(-520, -320, 280, 220);
-    private static readonly Rect2 FenceRect = new(-520, 80, 360, 240);
-    private static readonly Vector2 RaidBoardPos = new(0, -330);
-    private static readonly Vector2 LobbyPortal = new(520, 0);
-    public static readonly Vector2 LobbySpawn = new(380, 120);
-    private static readonly Vector2 WildPortal = new(1480, -160);
-    public static readonly Vector2 WildSpawn = new(1620, 80);
     private const float PortalRadius = 46f;
-    private const float SpawnInterval = 2.5f;
+    private const float CampfireHeal = 15f;
 
     public Player Player { get; private set; } = null!;
     public Hud Hud { get; private set; } = null!;
     public Node2D Monsters { get; private set; } = null!;
     public bool InWilderness { get; private set; }
+    /// <summary>The Wilderness zone the player is in, or null in the Lobby.</summary>
+    public ZoneInfo? CurrentZone { get; private set; }
 
     private bool _inTraining;
+    private int _campfiresTouching;
     private int _shownTrainingLevel;
-    private float _spawnTimer;
+    private readonly Dictionary<string, float> _spawnTimers = new();
     private readonly RandomNumberGenerator _rng = new();
 
     private static PlayerData Data => PlayerData.Instance;
@@ -41,18 +36,28 @@ public partial class World : Node2D
     {
         _rng.Randomize();
         SetupInput();
-        BuildWalls(LobbyRect);
-        BuildWalls(WildRect);
-        BuildZone(TrainingRect, SetTraining);
-        BuildPortal(LobbyPortal, () => Teleport(WildSpawn, toWilderness: true));
-        BuildPortal(WildPortal, () => Teleport(LobbySpawn, toWilderness: false));
 
-        AddChild(new FenceDisplay { Area = FenceRect });
+        AddChild(new LobbyMap());
+        AddChild(new WildernessMap());
+        AddChild(new FenceDisplay { Area = LobbyMap.FenceRect });
+        BuildWalls(LobbyMap.Bounds);
+        BuildWalls(Zones.WildRect);
+
+        BuildRectZone(LobbyMap.TrainingGround, SetTraining);
+        BuildCircleZone(LobbyMap.Portal, PortalRadius, entered => { if (entered) Defer(() => Teleport(Zones.ArrivalPoint, toWilderness: true)); });
+        BuildCircleZone(Zones.Gate, PortalRadius, entered => { if (entered) Defer(() => Teleport(LobbyMap.ReturnPoint, toWilderness: false)); });
+        BuildCircleZone(LobbyMap.UpgradeStation, LobbyMap.StationRadius, entered => { if (entered) Hud.Open(Hud.UpgradesPanel); });
+        BuildStationMessage(LobbyMap.RaidBoard, "Raid Board: raids on other players' bases arrive in Phase 4.");
+        BuildStationMessage(LobbyMap.CosmeticArea, "Cosmetics & Titles: coming in Phase 6.");
+        BuildStationMessage(LobbyMap.Leaderboard, "Leaderboard: arrives with online play in Phase 5.");
+        BuildStationMessage(LobbyMap.EventArea, "Event Area: swarm events arrive in Phase 3.");
+        foreach (var fire in Zones.Campfires)
+            BuildCircleZone(fire, Zones.CampfireRadius, entered => _campfiresTouching += entered ? 1 : -1);
 
         Monsters = new Node2D();
         AddChild(Monsters);
 
-        Player = new Player { Position = new Vector2(0, 120) };
+        Player = new Player { Position = LobbyMap.SpawnPoint };
         Player.Defeated += OnPlayerDefeated;
         AddChild(Player);
 
@@ -64,19 +69,21 @@ public partial class World : Node2D
 
     public override void _Process(double delta)
     {
+        float dt = (float)delta;
         if (_inTraining)
-            Data.Train(GameConfig.TrainIdleXpPerSec * (float)delta);
+            Data.Train(GameConfig.TrainIdleXpPerSec * dt);
         if (Data.TrainingLevel > _shownTrainingLevel)
             Player.PlayOneShot("victory");
         _shownTrainingLevel = Data.TrainingLevel;
 
-        _spawnTimer -= (float)delta;
-        if (_spawnTimer <= 0f)
-        {
-            _spawnTimer = SpawnInterval;
-            if (Monsters.GetChildCount() < GameConfig.MaxWildMonsters)
-                SpawnMonster();
-        }
+        Player.Resting = _campfiresTouching > 0;
+        if (Player.Resting)
+            Player.Heal(CampfireHeal * dt);
+
+        if (InWilderness)
+            TrackZone();
+        foreach (var zone in Zones.All)
+            TickSpawner(zone, dt);
     }
 
     // --- Setup ----------------------------------------------------------------
@@ -120,23 +127,27 @@ public partial class World : Node2D
         AddChild(body);
     }
 
-    private void BuildZone(Rect2 rect, Action<bool> onChange)
+    /// <summary>An area that reports the player entering (true) and leaving (false).</summary>
+    private void BuildZone(Vector2 position, Shape2D shape, Action<bool> onChange)
     {
-        var area = new Area2D { CollisionLayer = 0, CollisionMask = 1, Position = rect.GetCenter() };
-        area.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = rect.Size } });
+        var area = new Area2D { CollisionLayer = 0, CollisionMask = 1, Position = position };
+        area.AddChild(new CollisionShape2D { Shape = shape });
         area.BodyEntered += body => { if (body is Player) onChange(true); };
         area.BodyExited += body => { if (body is Player) onChange(false); };
         AddChild(area);
     }
 
-    private void BuildPortal(Vector2 position, Action onEnter)
-    {
-        var area = new Area2D { CollisionLayer = 0, CollisionMask = 1, Position = position };
-        area.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = PortalRadius } });
-        // Physics state can't change inside the callback, so teleport deferred.
-        area.BodyEntered += body => { if (body is Player) Callable.From(onEnter).CallDeferred(); };
-        AddChild(area);
-    }
+    private void BuildRectZone(Rect2 rect, Action<bool> onChange) =>
+        BuildZone(rect.GetCenter(), new RectangleShape2D { Size = rect.Size }, onChange);
+
+    private void BuildCircleZone(Vector2 center, float radius, Action<bool> onChange) =>
+        BuildZone(center, new CircleShape2D { Radius = radius }, onChange);
+
+    private void BuildStationMessage(Vector2 at, string message) =>
+        BuildCircleZone(at, LobbyMap.StationRadius, entered => { if (entered) Hud.Toast(message, new Color(0.9f, 0.85f, 0.7f)); });
+
+    /// <summary>Physics state can't change inside area callbacks, so run after them.</summary>
+    private static void Defer(Action action) => Callable.From(action).CallDeferred();
 
     // --- Gameplay -------------------------------------------------------------
 
@@ -145,8 +156,21 @@ public partial class World : Node2D
         Player.GlobalPosition = destination;
         Player.InSafeZone = !toWilderness;
         InWilderness = toWilderness;
-        Hud.AreaName = toWilderness ? "Wilderness" : "Lobby";
+        CurrentZone = null;
+        Hud.SetArea("Lobby", new Color(0.9f, 0.75f, 0.5f));
+        if (toWilderness)
+            TrackZone();
         GetViewport().GetCamera2D()?.ResetSmoothing();
+    }
+
+    private void TrackZone()
+    {
+        var zone = Zones.At(Player.GlobalPosition);
+        if (zone == null || zone == CurrentZone)
+            return;
+        CurrentZone = zone;
+        Hud.SetArea(zone.Name, zone.TierColor);
+        Hud.Toast($"Entering {zone.Title}", zone.TierColor);
     }
 
     private void SetTraining(bool active)
@@ -158,42 +182,59 @@ public partial class World : Node2D
     public void OnTrainPressed()
     {
         Data.Train(GameConfig.TrainTapXp);
-        Fx.Spawn(this, TrainingRect.GetCenter(), FxKind.Ring, new Color(0.5f, 0.9f, 1f), radius: 50f, duration: 0.25f);
+        Fx.Spawn(this, LobbyMap.TrainingGround.GetCenter(), FxKind.Ring, new Color(0.5f, 0.9f, 1f), radius: 50f, duration: 0.25f);
     }
 
-    public Monster SpawnMonster(string? speciesId = null, Vector2? at = null)
+    private void TickSpawner(ZoneInfo zone, float dt)
     {
-        var position = at ?? RandomSpawnPoint();
+        float left = _spawnTimers.GetValueOrDefault(zone.Id) - dt;
+        if (left > 0f)
+        {
+            _spawnTimers[zone.Id] = left;
+            return;
+        }
+        _spawnTimers[zone.Id] = zone.Respawn;
+        int alive = Monsters.GetChildren().OfType<Monster>().Count(m => m.ZoneId == zone.Id && !m.IsQueuedForDeletion());
+        if (alive < zone.Cap)
+            SpawnMonster(PickSpecies(zone), RandomPointIn(zone), zone.Id);
+    }
+
+    public Monster SpawnMonster(string speciesId, Vector2 at, string zoneId = "")
+    {
         var monster = new Monster();
-        monster.Setup(speciesId ?? PickSpecies(), position, Player);
+        monster.Setup(speciesId, at, Player, zoneId);
         monster.Died += OnMonsterDied;
         Monsters.AddChild(monster);
         return monster;
     }
 
-    private Vector2 RandomSpawnPoint()
+    /// <summary>A random point in the zone, away from the player and the gate when possible.</summary>
+    private Vector2 RandomPointIn(ZoneInfo zone)
     {
-        var inner = WildRect.Grow(-80);
         var position = Vector2.Zero;
         for (int attempt = 0; attempt < 10; attempt++)
         {
-            position = new Vector2(_rng.RandfRange(inner.Position.X, inner.End.X), _rng.RandfRange(inner.Position.Y, inner.End.Y));
-            if (position.DistanceTo(Player.GlobalPosition) > 350f && position.DistanceTo(WildSpawn) > 300f)
+            var cell = zone.Cells[_rng.RandiRange(0, zone.Cells.Length - 1)].Grow(-80);
+            position = new Vector2(_rng.RandfRange(cell.Position.X, cell.End.X), _rng.RandfRange(cell.Position.Y, cell.End.Y));
+            bool clear = position.DistanceTo(Player.GlobalPosition) > 350f
+                && position.DistanceTo(Zones.ArrivalPoint) > 300f
+                && Zones.Campfires.All(f => position.DistanceTo(f) > Zones.CampfireRadius + 60f);
+            if (clear)
                 break;
         }
         return position;
     }
 
-    private string PickSpecies()
+    private string PickSpecies(ZoneInfo zone)
     {
-        int roll = _rng.RandiRange(1, GameConfig.WildSpawns.Sum(s => s.Weight));
-        foreach (var (species, weight) in GameConfig.WildSpawns)
+        int roll = _rng.RandiRange(1, zone.Spawns.Sum(s => s.Weight));
+        foreach (var (species, weight) in zone.Spawns)
         {
             roll -= weight;
             if (roll <= 0)
                 return species;
         }
-        return "Slime";
+        return zone.Spawns[0].Species;
     }
 
     private void OnMonsterDied(Monster monster)
@@ -222,60 +263,7 @@ public partial class World : Node2D
     private void OnPlayerDefeated()
     {
         Hud.Toast("Defeated! Back to the Lobby.", new Color(1f, 0.4f, 0.4f));
-        Callable.From(() => Teleport(LobbySpawn, toWilderness: false)).CallDeferred();
+        Defer(() => Teleport(LobbyMap.ReturnPoint, toWilderness: false));
         Player.HealFull();
-    }
-
-    // --- Drawing (placeholder art) --------------------------------------------
-
-    public override void _Draw()
-    {
-        var font = ThemeDB.FallbackFont;
-        DrawRect(LobbyRect.Grow(Wall), new Color(0.30f, 0.24f, 0.18f));
-        DrawRect(LobbyRect, new Color(0.36f, 0.52f, 0.34f));
-        DrawRect(WildRect.Grow(Wall), new Color(0.22f, 0.18f, 0.14f));
-        DrawRect(WildRect, new Color(0.24f, 0.33f, 0.20f));
-        // Scatter some deterministic "grass tufts" in the wilderness.
-        var tufts = new RandomNumberGenerator { Seed = 7 };
-        for (int i = 0; i < 220; i++)
-        {
-            var p = new Vector2(tufts.RandfRange(WildRect.Position.X, WildRect.End.X), tufts.RandfRange(WildRect.Position.Y, WildRect.End.Y));
-            DrawCircle(p, tufts.RandfRange(6, 16), new Color(0.20f, 0.28f, 0.16f));
-        }
-
-        // Training ground with dummies.
-        DrawRect(TrainingRect, new Color(0.55f, 0.45f, 0.30f));
-        DrawRect(TrainingRect, new Color(0.35f, 0.28f, 0.18f), false, 4f);
-        foreach (int x in new[] { -460, -380, -300 })
-        {
-            DrawRect(new Rect2(x - 6, -240, 12, 50), new Color(0.45f, 0.30f, 0.18f));
-            DrawCircle(new Vector2(x, -248), 16, new Color(0.85f, 0.75f, 0.55f));
-        }
-        DrawString(font, TrainingRect.Position + new Vector2(0, -12), "TRAINING", HorizontalAlignment.Center, TrainingRect.Size.X, 22);
-
-        // Pet fence.
-        DrawRect(FenceRect, new Color(0.42f, 0.60f, 0.36f));
-        var post = new Color(0.55f, 0.38f, 0.22f);
-        for (int i = 0; i < 13; i++)
-        {
-            float x = FenceRect.Position.X + i * FenceRect.Size.X / 12f;
-            DrawRect(new Rect2(x - 4, FenceRect.Position.Y - 4, 8, 14), post);
-            DrawRect(new Rect2(x - 4, FenceRect.End.Y - 10, 8, 14), post);
-        }
-        DrawRect(FenceRect, post, false, 3f);
-        DrawString(font, FenceRect.Position + new Vector2(0, -12), "PET FENCE", HorizontalAlignment.Center, FenceRect.Size.X, 20);
-
-        // Raid Board placeholder.
-        DrawRect(new Rect2(RaidBoardPos - new Vector2(80, 30), new Vector2(160, 60)), new Color(0.35f, 0.22f, 0.15f));
-        DrawString(font, RaidBoardPos + new Vector2(-80, 8), "RAID BOARD", HorizontalAlignment.Center, 160, 18);
-        DrawString(font, RaidBoardPos + new Vector2(-80, 50), "(Phase 4)", HorizontalAlignment.Center, 160, 16, new Color(1, 1, 1, 0.6f));
-
-        // Portals.
-        foreach (var (position, label) in new[] { (LobbyPortal, "WILDERNESS"), (WildPortal, "LOBBY") })
-        {
-            DrawCircle(position, PortalRadius, new Color(0.45f, 0.30f, 0.85f, 0.7f));
-            DrawArc(position, PortalRadius, 0f, Mathf.Tau, 40, new Color(0.8f, 0.7f, 1f), 4f);
-            DrawString(font, position + new Vector2(-90, -PortalRadius - 12), label, HorizontalAlignment.Center, 180, 20);
-        }
     }
 }
