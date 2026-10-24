@@ -1,0 +1,72 @@
+{
+  "male_idle": {
+    "frames": 4,
+    "width": 42,
+    "height": 65
+  },
+  "male_walk": {
+    "frames": 5,
+    "width": 42,
+    "height": 64
+  },
+  "male_run": {
+    "frames": 4,
+    "width": 48,
+    "height": 60
+  },
+  "male_attack": {
+    "frames": 3,
+    "width": 67,
+    "height": 60
+  },
+  "male_hurt": {
+    "frames": 5,
+    "width": 56,
+    "height": 62
+  },
+  "male_death": {
+    "frames": 4,
+    "width": 64,
+    "height": 40
+  },
+  "male_victory": {
+    "frames": 4,
+    "width": 46,
+    "height": 63
+  },
+  "female_idle": {
+    "frames": 4,
+    "width": 45,
+    "height": 67
+  },
+  "female_walk": {
+    "frames": 5,
+    "width": 41,
+    "height": 65
+  },
+  "female_run": {
+    "frames": 4,
+    "width": 47,
+    "height": 63
+  },
+  "female_attack": {
+    "frames": 2,
+    "width": 46,
+    "height": 57
+  },
+  "female_hurt": {
+    "frames": 5,
+    "width": 49,
+    "height": 62
+  },
+  "female_death": {
+    "frames": 4,
+    "width": 65,
+    "height": 50
+  },
+  "female_victory": {
+    "frames": 4,
+    "width": 54,
+    "height": 63
+  }
+}

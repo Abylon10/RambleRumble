@@ -1,20 +1,21 @@
 # Ramble Rumble
 
-A 2D top-down mobile game about monster hunting, skills, pet collection and base raids. It's built with **Godot 4.7** (GDScript).
+A 2D top-down mobile game about monster hunting, skills, pet collection and base raids. It's built with **Godot 4.7 (.NET)** in **C#**.
 The design follows the *Ramble Rumble Game Proposal v1.1*.
 
-## Status: Phase 2, economy and pets
+## Status: Phase 2 (economy and pets) + character art
 
 | Feature | State |
 |---|---|
-| Starter skill choice (Flame Fist, Wind Slash, Stone Breaker, Thunder Dash) | ✅ |
+| Character creation: male/female adventurer + starter skill (Flame Fist, Wind Slash, Stone Breaker, Thunder Dash) | ✅ |
+| Animated character sprites (idle, walk, run, attack, hurt, victory) and skill icons | ✅ |
 | Lobby (safe zone) with training ground and pet fence, plus a Raid Board placeholder | ✅ |
 | Training (tap or stand in the zone) raises training level, attack, HP and CP | ✅ |
 | One Wilderness zone with Slime (Common), Wolf (Uncommon) and Goblin (Rare) | ✅ |
 | Kill drops: gold, pets with rolled **size**, and skill boxes | ✅ |
 | Pity for Rare and higher pets | ✅ |
 | Best-loadout CP (unequipping can't lower it) | ✅ |
-| Touch controls: multitouch joystick, attack button, skill buttons, auto-aim | ✅ |
+| Touch controls: multitouch joystick, attack button, up to 4 skill buttons, auto-aim | ✅ |
 | Local save (`user://save.json`) | ✅ |
 | Pet fence: fenced pets earn gold per minute and wander in the Lobby fence | ✅ |
 | Offline fence income, capped at 8 hours | ✅ |
@@ -27,50 +28,75 @@ The design follows the *Ramble Rumble Game Proposal v1.1*.
 | Online async raids (Supabase backend), loss caps, shields | Phase 5 |
 | Cosmetics and temporary boosts (IAP), polish | Phase 6 |
 
-All art is placeholder shapes drawn in code.
+Monsters, pets and effects are still placeholder shapes drawn in code.
 
 ## Run it
 
-1. Install Godot 4.7 or newer (standard build, not .NET).
+1. Install **Godot 4.7 .NET** (the ".NET" download, not the standard one) and the **.NET 8 SDK**.
 2. In Godot, choose **Import** and pick `project.godot`.
-3. Press **F5**.
+3. Press **F5**. Godot builds the C# code the first time.
 
-**Desktop controls:** WASD or the arrow keys to move, **J** or **Space** to attack, **K** and **L** for the skills. You can also drag with the mouse on the joystick and buttons, because mouse input is turned into touch.
+**Desktop controls:** WASD or the arrow keys to move, **J** or **Space** to attack, **K**, **L**, **U** and **I** for skill slots 1–4. You can also drag with the mouse on the joystick and buttons, because mouse input is turned into touch.
 
 ## Tests
 
+Build first, then run each test scene headless (the exit code is the number of failures):
+
 ```bash
-godot --headless --path . -s res://tests/drop_sim.gd
-godot --headless --path . res://tests/gameplay_smoke.tscn -- --test
-godot --headless --path . res://tests/economy_test.tscn -- --test
+dotnet build
+godot --headless --path . res://tests/DropSim.tscn -- --test
+godot --headless --path . res://tests/GameplaySmoke.tscn -- --test
+godot --headless --path . res://tests/EconomyTest.tscn -- --test
 ```
 
-- `drop_sim` rolls 200k kills per species and checks the pet and skill-box rates, the size odds and the pity limits.
-- `gameplay_smoke` plays the real scene: it picks a starter, trains, uses the portal, kills monsters with every skill, then checks save/load and that defeat returns you to the Lobby.
-- `economy_test` covers fence slots, income, the offline cap, treats and level caps, merging, Star Shards, Pet Lab limits, releasing pets, upgrades, and saving/loading the new data.
+- `DropSim` rolls 200k kills per species and checks the pet and skill-box rates, the size odds and the pity limits.
+- `GameplaySmoke` plays the real scene: it picks a starter, trains, uses the portal, kills monsters with all four skill slots, then checks save/load and that defeat returns you to the Lobby.
+- `EconomyTest` covers fence slots, income, the offline cap, treats and level caps, merging, Star Shards, Pet Lab limits, releasing pets, upgrades, and saving/loading.
 
 Passing `-- --test` makes the game use `user://test_save.json`, so tests never touch your real save.
 
 ## Code layout
 
 ```
-scenes/main.tscn          entry scene (World)
-scripts/config.gd         balance data (autoload GameConfig): rarities, sizes, stars, species, skills
-scripts/player_data.gd    progress + save/load (autoload PlayerData); every change goes through here
-scripts/drop_roller.gd    pure kill-reward rolls with injected RNG (will move to the backend later)
-scripts/world.gd          builds the Lobby and Wilderness, portals, spawning, training
-scripts/player.gd         movement, basic attack, the four skills, auto-aim
-scripts/monster.gd        wander / chase / leash AI, burn and stun
-scripts/projectile.gd     Wind Slash
-scripts/fx.gd             placeholder effects and floating text
-scripts/fence_display.gd  fenced pets wandering in the Lobby fence
-scripts/ui/               HUD, Pets/Pet Lab and Upgrades panels, joystick, buttons
-tests/                    headless checks
+RambleRumble.csproj        C# project (Godot.NET.Sdk)
+scenes/main.tscn           entry scene (World)
+scripts/GameConfig.cs      balance data as C# records: rarities, sizes, stars, species, skills, upgrades
+scripts/PlayerData.cs      progress + save/load (autoload; use PlayerData.Instance); every change goes through here
+scripts/Pet.cs             pet data class
+scripts/DropRoller.cs      pure kill-reward rolls with injected RNG (will move to the backend later)
+scripts/World.cs           builds the Lobby and Wilderness, portals, spawning, training
+scripts/Player.cs          movement, basic attack, the four skills, auto-aim, sprite animation
+scripts/CharacterArt.cs    loads character strips, portraits and skill icons
+scripts/Monster.cs         wander / chase / leash AI, burn and stun
+scripts/Projectile.cs      Wind Slash
+scripts/Fx.cs              placeholder effects and floating text
+scripts/FenceDisplay.cs    fenced pets wandering in the Lobby fence
+scripts/ui/                HUD, Pets/Pet Lab and Upgrades panels, joystick, touch buttons
+tests/                     headless test scenes
+art/                       sprites, icons, portraits (see below)
+tools/cut_sprites.py       cuts the art out of the concept sheet
+```
+
+## Art
+
+`art/source/character_sheet.webp` is the concept sheet. `tools/cut_sprites.py` cuts it into:
+
+- `art/characters/<gender>_<anim>.png`: one strip of equal-size frames per animation.
+- `art/characters/manifest.json`: the frame count and frame size of each strip.
+- `art/icons/` and `art/portraits/`: skill icons and character portraits.
+
+The sprites face right and only come in side view; the game flips them to face left.
+To use proper sprite sheets later, replace the strips and update `manifest.json`. No code changes are needed.
+
+To re-run the cutter (needs Python with Pillow, NumPy and SciPy):
+
+```bash
+python tools/cut_sprites.py
 ```
 
 ## Exporting to Android
 
-In Godot, open **Editor → Manage Export Templates** and install the templates. Then set up the Android SDK (**Editor Settings → Export → Android**), add an Android preset under **Project → Export**, and export.
+In Godot, open **Editor → Manage Export Templates** and install the .NET templates. Then set up the Android SDK (**Editor Settings → Export → Android**), add an Android preset under **Project → Export**, and export.
 The project uses the Compatibility renderer and landscape orientation, which suits low-end phones.
 
 ## Notes for online play (Phase 5)
