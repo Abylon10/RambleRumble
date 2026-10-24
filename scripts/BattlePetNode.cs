@@ -18,13 +18,17 @@ public partial class BattlePetNode : Node2D
 
     private float _attackTimer;
     private float _lunge;
+    private float _time;
     private Vector2 _lungeDir;
 
     private static PlayerData Data => PlayerData.Instance;
 
+    public override void _Ready() => TextureFilter = TextureFilterEnum.Nearest; // crisp pixel art
+
     public override void _Process(double delta)
     {
         float dt = (float)delta;
+        _time += dt;
         var pet = Data.BattlePet;
         Visible = pet != null;
         if (pet == null)
@@ -63,10 +67,9 @@ public partial class BattlePetNode : Node2D
         var species = GameConfig.SpeciesOf(pet.Species);
         float radius = species.Radius * 0.75f * GameConfig.Size(pet.Size).Scale;
         var at = _lungeDir * _lunge * 14f;
-        Shapes.Ellipse(this, new Vector2(0, radius * 0.8f), new Vector2(radius * 0.9f, radius * 0.35f), new Color(0, 0, 0, 0.25f));
-        Shapes.Circle(this, at, radius, species.Color);
-        Shapes.Ring(this, at, radius + 1f, GameConfig.RarityColor(pet.Rarity));
-        Shapes.Circle(this, at + new Vector2(-radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
-        Shapes.Circle(this, at + new Vector2(radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
+        var feet = new Vector2(0, radius * 0.9f);
+        Shapes.Ellipse(this, feet, new Vector2(radius * 1.05f, radius * 0.4f), new Color(0, 0, 0, 0.25f));
+        Shapes.Ring(this, feet, radius * 0.9f, new Color(GameConfig.RarityColor(pet.Rarity), 0.7f), thin: true);
+        MonsterArt.Draw(this, pet.Species, (int)(_time * 5f), feet + at, radius * 2.6f, Player.Facing.X < 0f, Colors.White);
     }
 }

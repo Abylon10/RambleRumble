@@ -25,10 +25,14 @@ public partial class FenceDisplay : Node2D
     private readonly Dictionary<int, Walker> _walkers = new();
     private int _seenVersion = -1;
     private float _coinTimer = CoinPopInterval;
+    private float _time;
+
+    public override void _Ready() => TextureFilter = TextureFilterEnum.Nearest; // crisp pixel art
 
     public override void _Process(double delta)
     {
         var data = PlayerData.Instance;
+        _time += (float)delta;
         if (_seenVersion != data.PetsVersion)
         {
             _seenVersion = data.PetsVersion;
@@ -98,11 +102,12 @@ public partial class FenceDisplay : Node2D
             var species = GameConfig.SpeciesOf(pet.Species);
             float radius = species.Radius * 0.8f * GameConfig.Size(pet.Size).Scale;
             var pos = walker.Pos;
-            Shapes.Circle(this, pos + new Vector2(0, radius * 0.8f), radius * 0.9f, new Color(0, 0, 0, 0.18f));
-            Shapes.Circle(this, pos, radius, species.Color);
-            Shapes.Ring(this, pos, radius + 1f, GameConfig.RarityColor(pet.Rarity));
-            Shapes.Circle(this, pos + new Vector2(-radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
-            Shapes.Circle(this, pos + new Vector2(radius * 0.3f, -radius * 0.2f), 2.5f, Colors.Black);
+            var feet = pos + new Vector2(0, radius * 0.9f);
+            Shapes.Ellipse(this, feet, new Vector2(radius * 1.05f, radius * 0.4f), new Color(0, 0, 0, 0.22f));
+            Shapes.Ring(this, feet, radius * 0.9f, new Color(GameConfig.RarityColor(pet.Rarity), 0.6f), thin: true);
+            bool faceLeft = walker.Target.X < walker.Pos.X;
+            MonsterArt.Draw(this, pet.Species, (int)(_time * 4f + pet.Id), feet, radius * 2.6f, faceLeft, Colors.White);
+            radius *= 1.7f; // stars go above the sprite
             // Small drawn stars: text here would be re-shaped every frame as pets walk.
             for (int s = 0; s < pet.Stars; s++)
                 DrawStar(pos + new Vector2((s - (pet.Stars - 1) / 2f) * 10f, -radius - 8));

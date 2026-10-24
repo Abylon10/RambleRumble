@@ -33,7 +33,7 @@ There's no online play, no multiplayer and no raids. Saves stay on the device.
 | Chapter 3 onward (Crimson Fang, Kael and the Rambler Guild, the Worldheart...) | next |
 | Dodge, more lineages' skills, more class tiers | later |
 
-Monsters, Echoes, maps and effects are still placeholder shapes drawn in code.
+Monsters and Echoes are pixel art generated in code (`scripts/MonsterArt.cs`). Tiles, scenery and effects are still simple shapes.
 
 ## Run it
 

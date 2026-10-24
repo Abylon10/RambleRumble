@@ -47,6 +47,8 @@ public partial class Monster : CharacterBody2D
     private float _wanderTimer;
     private bool _dead;
     private bool _asleep;
+    private float _animTime;
+    private bool _faceLeft;
     private bool _elite;
     private string _eliteTitle = "";
 
@@ -65,6 +67,7 @@ public partial class Monster : CharacterBody2D
     public override void _Ready()
     {
         AddToGroup("monsters");
+        TextureFilter = TextureFilterEnum.Nearest; // crisp pixel-art sprites
         CollisionLayer = 2;
         CollisionMask = 4;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Radius } });
@@ -110,7 +113,7 @@ public partial class Monster : CharacterBody2D
             Text = text,
             HorizontalAlignment = HorizontalAlignment.Center,
             Size = new Vector2(240, 24),
-            Position = new Vector2(-120, -Radius - 40),
+            Position = new Vector2(-120, -Radius * 1.7f - 34),
         };
         label.AddThemeFontSizeOverride("font_size", 16);
         label.AddThemeColorOverride("font_color", GameConfig.RarityColor("Mythic"));
@@ -122,8 +125,13 @@ public partial class Monster : CharacterBody2D
     public override void _Process(double delta)
     {
         // Redraw once per rendered frame (not per physics step), and only when awake.
-        if (!_asleep && !_dead)
-            QueueRedraw();
+        if (_asleep || _dead)
+            return;
+        // Two-frame animation: quick while moving, slow while idle.
+        _animTime += (float)delta * (Velocity.LengthSquared() > 1f ? 6f : 2f);
+        if (Mathf.Abs(_target.GlobalPosition.X - GlobalPosition.X) > 4f)
+            _faceLeft = _target.GlobalPosition.X < GlobalPosition.X;
+        QueueRedraw();
     }
 
     public override void _PhysicsProcess(double delta)
@@ -208,25 +216,33 @@ public partial class Monster : CharacterBody2D
         _burnLeft = seconds;
     }
 
+    /// <summary>On-screen sprite height relative to the collision radius.</summary>
+    private const float SpriteScale = 2.6f;
+
     public override void _Draw()
     {
-        var body = _flash > 0f ? Colors.White : _species.Color;
-        if (_burnLeft > 0f)
-            body = body.Lerp(new Color(1f, 0.4f, 0.1f), 0.35f);
+        var feet = new Vector2(0, Radius * 0.9f);
+        float height = Radius * SpriteScale;
+        // Ground shadow with a rarity-coloured rim; corrupted monsters stand in a red haze.
         if (Corrupted)
-            Shapes.Circle(this, Vector2.Zero, Radius + 6f, new Color(1f, 0.15f, 0.15f, 0.35f));
-        Shapes.Circle(this, Vector2.Zero, Radius, body);
-        Shapes.Ring(this, Vector2.Zero, Radius + 1f, GameConfig.RarityColor(_species.Rarity));
-        var eyeDir = (_target.GlobalPosition - GlobalPosition).Normalized() * Radius * 0.35f;
-        Shapes.Circle(this, eyeDir + new Vector2(-5, -4), 3f, Colors.Black);
-        Shapes.Circle(this, eyeDir + new Vector2(5, -4), 3f, Colors.Black);
+            Shapes.Ellipse(this, feet, new Vector2(Radius * 1.5f, Radius * 0.6f), new Color(1f, 0.15f, 0.15f, 0.40f));
+        Shapes.Ellipse(this, feet, new Vector2(Radius * 1.05f, Radius * 0.4f), new Color(0, 0, 0, 0.3f));
+        Shapes.Ring(this, feet, Radius * 0.9f, new Color(GameConfig.RarityColor(_species.Rarity), 0.55f), thin: true);
+
+        var tint = _flash > 0f ? new Color(1f, 0.55f, 0.55f)
+            : _burnLeft > 0f ? new Color(1f, 0.75f, 0.55f)
+            : Corrupted ? new Color(1f, 0.82f, 0.82f)
+            : Colors.White;
+        MonsterArt.Draw(this, SpeciesId, (int)_animTime, feet, height, _faceLeft, tint);
+
+        float top = feet.Y - height;
         if (_stunLeft > 0f)
-            Shapes.Ring(this, new Vector2(0, -Radius - 6), 8f, new Color(1f, 1f, 0.4f));
+            Shapes.Ring(this, new Vector2(0, top - 6), 8f, new Color(1f, 1f, 0.4f));
         if (_hp < _maxHp)
         {
             float w = Radius * 2.2f;
-            DrawRect(new Rect2(-w / 2, -Radius - 10, w, 5), new Color(0, 0, 0, 0.6f));
-            DrawRect(new Rect2(-w / 2, -Radius - 10, w * _hp / _maxHp, 5), new Color(0.9f, 0.2f, 0.2f));
+            DrawRect(new Rect2(-w / 2, top - 8, w, 5), new Color(0, 0, 0, 0.6f));
+            DrawRect(new Rect2(-w / 2, top - 8, w * _hp / _maxHp, 5), new Color(0.9f, 0.2f, 0.2f));
         }
     }
 }
